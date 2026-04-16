@@ -19,3 +19,10 @@ zstd = { version = "0.12.4", optional = true, default-features = false }
 default = ["bincode", "rayon"]
 custom-alloc = []
 rayon = ["dep:rayon", "zstd?/zstdmt"]
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "web_case"
+harness = false
