@@ -2,105 +2,65 @@ extern crate postflop_solver;
 
 mod support;
 
-use support::web_case::{canonical_web_case_results, solve_web_case};
+use std::collections::BTreeSet;
+use std::env;
+use std::fs;
 
-const MAX_COMBOS_DIFF: f32 = 1e-5;
-const MAX_EQUITY_DIFF: f32 = 5e-4;
-const MAX_EV_DIFF: f32 = 5e-3;
-const MAX_ACTION_FREQ_DIFF: f32 = 5e-4;
-const MAX_MEAN_EV_DIFF: f32 = 1e-3;
-const MAX_MEAN_ACTION_FREQ_DIFF: f32 = 1e-4;
+use support::web_case::{
+    assert_fixture_matches_snapshot, canonical_web_case_spec, canonical_web_fixture_summary,
+    canonical_web_tree_fixtures, solve_game, WEB_SNAPSHOT_DIFF_THRESHOLDS,
+};
 
 #[test]
-fn regression_matches_canonical_web_case_csv() {
-    let solved = solve_web_case();
-    let canonical = canonical_web_case_results();
+fn regression_matches_all_canonical_web_tree_fixtures() {
+    let spec = canonical_web_case_spec();
+    let mut solved = solve_game(&spec);
+    let fixture_summary = canonical_web_fixture_summary();
 
-    assert_eq!(
-        solved.hands.len(),
-        canonical.len(),
-        "solver/canonical hand count mismatch"
-    );
-    assert_eq!(
-        canonical.len(),
-        42,
-        "canonical CSV should contain the 42 OOP combos for the web spot"
-    );
+    maybe_print_fixture_summary(&fixture_summary);
+
+    // Este test resuelve el game canónico una vez y luego compara, fixture por fixture,
+    // los snapshots del árbol contra sus CSV expected. Cada comparación valida por mano:
+    // combos, equity, EV total, frecuencias por acción y EV por acción.
+
     assert!(
         solved.final_exploitability <= solved.target_exploitability,
-        "solver did not reach target exploitability: final={} target={}",
+        "solver did not reach target exploitability: final={} target={}\n\nCompared fixtures:\n{}",
         solved.final_exploitability,
         solved.target_exploitability,
+        fixture_summary,
     );
 
-    let mut total_ev_diff = 0.0;
-    let mut total_action_freq_diff = 0.0;
+    for fixture in canonical_web_tree_fixtures() {
+        assert_fixture_matches_snapshot(&mut solved.game, &fixture, &WEB_SNAPSHOT_DIFF_THRESHOLDS);
+    }
+}
 
-    for hand in &solved.hands {
-        let expected = canonical
-            .get(&hand.hand)
-            .unwrap_or_else(|| panic!("missing canonical row for {}", hand.hand));
+#[test]
+fn canonical_web_fixture_registry_covers_all_active_csvs() {
+    let registered_paths = canonical_web_tree_fixtures()
+        .into_iter()
+        .map(|fixture| fixture.csv_path.to_string())
+        .collect::<BTreeSet<_>>();
+    let active_paths = fs::read_dir("tests/fixtures/web")
+        .unwrap_or_else(|error| panic!("failed to read tests/fixtures/web: {}", error))
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("csv"))
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .collect::<BTreeSet<_>>();
 
-        let combos_diff = (hand.combos - expected.combos).abs();
-        let equity_diff = (hand.equity - expected.equity).abs();
-        let ev_diff = (hand.ev - expected.ev).abs();
-        let bet_diff = (hand.bet_freq - expected.bet_freq).abs();
-        let check_diff = (hand.check_freq - expected.check_freq).abs();
+    assert_eq!(
+        registered_paths, active_paths,
+        "fixture registry must explicitly cover every active web CSV\n\nRegistered fixtures:\n{}",
+        canonical_web_fixture_summary(),
+    );
+}
 
-        total_ev_diff += ev_diff;
-        total_action_freq_diff += bet_diff + check_diff;
-
-        assert!(
-            combos_diff <= MAX_COMBOS_DIFF,
-            "{} combos diff {} > {}",
-            hand.hand,
-            combos_diff,
-            MAX_COMBOS_DIFF
-        );
-        assert!(
-            equity_diff <= MAX_EQUITY_DIFF,
-            "{} equity diff {} > {}",
-            hand.hand,
-            equity_diff,
-            MAX_EQUITY_DIFF
-        );
-        assert!(
-            ev_diff <= MAX_EV_DIFF,
-            "{} EV diff {} > {}",
-            hand.hand,
-            ev_diff,
-            MAX_EV_DIFF
-        );
-        assert!(
-            bet_diff <= MAX_ACTION_FREQ_DIFF,
-            "{} bet freq diff {} > {}",
-            hand.hand,
-            bet_diff,
-            MAX_ACTION_FREQ_DIFF
-        );
-        assert!(
-            check_diff <= MAX_ACTION_FREQ_DIFF,
-            "{} check freq diff {} > {}",
-            hand.hand,
-            check_diff,
-            MAX_ACTION_FREQ_DIFF
+fn maybe_print_fixture_summary(summary: &str) {
+    if env::var_os("POSTFLOP_SOLVER_SHOW_FIXTURE_SUMMARY").is_some() {
+        println!(
+            "\n[postflop-solver] Compared fixtures for canonical web regression:\n{}\n",
+            summary
         );
     }
-
-    let hand_count = solved.hands.len() as f32;
-    let mean_ev_diff = total_ev_diff / hand_count;
-    let mean_action_freq_diff = total_action_freq_diff / (hand_count * 2.0);
-
-    assert!(
-        mean_ev_diff <= MAX_MEAN_EV_DIFF,
-        "mean EV diff {} > {}",
-        mean_ev_diff,
-        MAX_MEAN_EV_DIFF
-    );
-    assert!(
-        mean_action_freq_diff <= MAX_MEAN_ACTION_FREQ_DIFF,
-        "mean action freq diff {} > {}",
-        mean_action_freq_diff,
-        MAX_MEAN_ACTION_FREQ_DIFF,
-    );
 }

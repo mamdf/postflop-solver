@@ -5,17 +5,18 @@ use postflop_solver::solve;
 mod web_case;
 
 fn bench_canonical_web_case_solve(c: &mut Criterion) {
+    let spec = web_case::canonical_web_case_spec();
     let mut group = c.benchmark_group("canonical_web_case");
     group.sample_size(10);
 
     group.bench_function("solve", |b| {
         b.iter_batched(
-            web_case::build_web_case_game,
+            || web_case::build_game(&spec),
             |mut game| {
                 let exploitability = solve(
                     &mut game,
                     web_case::WEB_CASE_MAX_ITERATIONS,
-                    web_case::web_case_target_exploitability(),
+                    web_case::target_exploitability(&spec),
                     false,
                 );
                 black_box(exploitability);
