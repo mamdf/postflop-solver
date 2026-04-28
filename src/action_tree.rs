@@ -69,6 +69,7 @@ pub enum BoardState {
 ///     effective_stack: 900,
 ///     rake_rate: 0.05,
 ///     rake_cap: 30.0,
+///     bubble_factor: [1.0, 1.0],
 ///     flop_bet_sizes: Default::default(),
 ///     turn_bet_sizes: [bet_sizes.clone(), bet_sizes.clone()],
 ///     river_bet_sizes: [bet_sizes.clone(), bet_sizes.clone()],
@@ -79,7 +80,7 @@ pub enum BoardState {
 ///     merging_threshold: 0.1,
 /// };
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub struct TreeConfig {
     /// Initial state of the game tree (flop, turn, or river).
@@ -96,6 +97,13 @@ pub struct TreeConfig {
 
     /// Rake cap. Must be non-negative.
     pub rake_cap: f64,
+
+    /// Bubble factor by player: `[0]` is OOP and `[1]` is IP.
+    ///
+    /// The default `[1.0, 1.0]` preserves chipEV behavior. Values greater than
+    /// `1.0` reduce that player's winning payoff as an ICM risk-premium
+    /// approximation.
+    pub bubble_factor: [f64; 2],
 
     /// Bet size options of each player for the flop.
     pub flop_bet_sizes: [BetSizeOptions; 2],
@@ -131,6 +139,28 @@ pub struct TreeConfig {
     ///
     /// Personal recommendation: around `0.1`
     pub merging_threshold: f64,
+}
+
+impl Default for TreeConfig {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            initial_state: Default::default(),
+            starting_pot: Default::default(),
+            effective_stack: Default::default(),
+            rake_rate: Default::default(),
+            rake_cap: Default::default(),
+            bubble_factor: [1.0, 1.0],
+            flop_bet_sizes: Default::default(),
+            turn_bet_sizes: Default::default(),
+            river_bet_sizes: Default::default(),
+            turn_donk_sizes: Default::default(),
+            river_donk_sizes: Default::default(),
+            add_allin_threshold: Default::default(),
+            force_allin_threshold: Default::default(),
+            merging_threshold: Default::default(),
+        }
+    }
 }
 
 /// A struct representing an abstract game tree.
@@ -447,6 +477,15 @@ impl ActionTree {
                 "Rake cap must be non-negative: {}",
                 config.rake_cap
             ));
+        }
+
+        for (player, &bubble_factor) in config.bubble_factor.iter().enumerate() {
+            if !bubble_factor.is_finite() || bubble_factor <= 0.0 {
+                return Err(format!(
+                    "Bubble factor for player {} must be finite and positive: {}",
+                    player, bubble_factor
+                ));
+            }
         }
 
         if config.add_allin_threshold < 0.0 {

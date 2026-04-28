@@ -1,5 +1,10 @@
 # List of breaking changes
 
+## 2026-04-28
+
+- `TreeConfig`: new field `bubble_factor: [f64; 2]` is added. The default `[1.0, 1.0]` preserves chipEV behavior; values must be finite and positive.
+- Saved game compatibility is broken because `TreeConfig` serialization changed.
+
 ## 2023-10-01
 
 - `BetSizeCandidates` and `DonkSizeCandidates` are renamed to `BetSizeOptions` and `DonkSizeOptions`, respectively.

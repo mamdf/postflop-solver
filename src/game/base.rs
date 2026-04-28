@@ -82,6 +82,11 @@ impl Game for PostFlopGame {
     }
 
     #[inline]
+    fn uses_bubble_factor(&self) -> bool {
+        self.tree_config.bubble_factor != [1.0, 1.0]
+    }
+
+    #[inline]
     fn isomorphic_chances(&self, node: &Self::Node) -> &[u8] {
         if node.turn == NOT_DEALT {
             &self.isomorphism_ref_turn
@@ -224,6 +229,12 @@ impl PostFlopGame {
     #[inline]
     pub fn tree_config(&self) -> &TreeConfig {
         &self.tree_config
+    }
+
+    /// Returns whether bubble-factor payoff scaling is enabled.
+    #[inline]
+    pub fn uses_bubble_factor(&self) -> bool {
+        self.tree_config.bubble_factor != [1.0, 1.0]
     }
 
     /// Obtains the added lines.

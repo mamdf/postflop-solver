@@ -22,7 +22,8 @@ impl PostFlopGame {
         let pot = (self.tree_config.starting_pot + 2 * node.amount) as f64;
         let half_pot = 0.5 * pot;
         let rake = min(pot * self.tree_config.rake_rate, self.tree_config.rake_cap);
-        let amount_win = (half_pot - rake) / self.num_combinations;
+        let amount_win =
+            (half_pot - rake) / self.tree_config.bubble_factor[player] / self.num_combinations;
         let amount_lose = -half_pot / self.num_combinations;
 
         let player_cards = &self.private_cards[player];
@@ -262,7 +263,9 @@ impl PostFlopGame {
         let pot = (self.tree_config.starting_pot + 2 * node.amount) as f64;
         let half_pot = 0.5 * pot;
         let rake = min(pot * self.tree_config.rake_rate, self.tree_config.rake_cap);
-        let amount_win = ((half_pot - rake) / self.bunching_num_combinations) as f32;
+        let amount_win = ((half_pot - rake)
+            / self.tree_config.bubble_factor[player]
+            / self.bunching_num_combinations) as f32;
         let amount_lose = (-half_pot / self.bunching_num_combinations) as f32;
         let amount_tie = (-0.5 * rake / self.bunching_num_combinations) as f32;
         let opponent_len = self.private_cards[player ^ 1].len();

@@ -54,6 +54,12 @@ pub trait Game: Send + Sync {
         false
     }
 
+    /// Returns whether bubble-factor payoff scaling is enabled.
+    #[doc(hidden)]
+    fn uses_bubble_factor(&self) -> bool {
+        false
+    }
+
     /// Returns the list of indices that isomorphic chances refer to.
     #[doc(hidden)]
     fn isomorphic_chances(&self, _node: &Self::Node) -> &[u8] {
