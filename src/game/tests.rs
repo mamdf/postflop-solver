@@ -495,6 +495,55 @@ fn always_win() {
 }
 
 #[test]
+fn bubble_factor_changes_terminal_payoff_vs_chipev() {
+    let chip_ev = always_win_average_ev([1.0, 1.0]);
+    let icm_ev = always_win_average_ev([2.0, 1.0]);
+
+    // ChipEV baseline: OOP always wins the 60-chip pot, IP always loses.
+    assert!((chip_ev[0] - 60.0).abs() < 1e-4);
+    assert!((chip_ev[1] - 0.0).abs() < 1e-4);
+
+    // With OOP bubble factor 2.0, only OOP's winning payoff is discounted.
+    // The displayed EV keeps the existing half-pot bias, so the expected value
+    // becomes half_pot + half_pot / BF = 30 + 30 / 2 = 45.
+    assert!((icm_ev[0] - 45.0).abs() < 1e-4);
+    assert!((icm_ev[1] - 0.0).abs() < 1e-4);
+    assert!(icm_ev[0] < chip_ev[0]);
+}
+
+fn always_win_average_ev(bubble_factor: [f64; 2]) -> [f32; 2] {
+    // be careful for straight flushes
+    let lose_range_str = "KK-22,K9-K2,Q8-Q2,J8-J2,T8-T2,92+,82+,72+,62+";
+    let card_config = CardConfig {
+        range: ["AA".parse().unwrap(), lose_range_str.parse().unwrap()],
+        flop: flop_from_str("AcAdKh").unwrap(),
+        ..Default::default()
+    };
+
+    let tree_config = TreeConfig {
+        starting_pot: 60,
+        effective_stack: 970,
+        bubble_factor,
+        ..Default::default()
+    };
+
+    let action_tree = ActionTree::new(tree_config).unwrap();
+    let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+
+    game.allocate_memory(false);
+    finalize(&mut game);
+    assert_eq!(game.uses_bubble_factor(), bubble_factor != [1.0, 1.0]);
+
+    game.cache_normalized_weights();
+    let weights_oop = game.normalized_weights(0);
+    let weights_ip = game.normalized_weights(1);
+    [
+        compute_average(&game.expected_values(0), weights_oop),
+        compute_average(&game.expected_values(1), weights_ip),
+    ]
+}
+
+#[test]
 fn always_win_raked() {
     // be careful for straight flushes
     let lose_range_str = "KK-22,K9-K2,Q8-Q2,J8-J2,T8-T2,92+,82+,72+,62+";
