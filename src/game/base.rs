@@ -331,6 +331,42 @@ impl PostFlopGame {
             .count()
     }
 
+    /// Returns a utility scale suitable for converting a relative exploitability target into the
+    /// raw utility units expected by [`solve`](crate::solve).
+    ///
+    /// For chipEV and bubble-factor modes this is the starting pot in chips. For tournament ICM,
+    /// this is the largest absolute precomputed terminal ICM delta in payout units. A caller that
+    /// wants a `0.5%` target can use `game.exploitability_target_scale() * 0.005` after configuring
+    /// tournament ICM and before solving.
+    #[inline]
+    pub fn exploitability_target_scale(&self) -> f32 {
+        if self.uses_tournament_icm() {
+            self.terminal_icm_utilities
+                .iter()
+                .filter_map(|&utility| utility)
+                .flat_map(|utility| {
+                    utility
+                        .win
+                        .into_iter()
+                        .chain(utility.lose)
+                        .chain(utility.tie)
+                })
+                .map(f32::abs)
+                .fold(0.0, f32::max)
+        } else {
+            self.tree_config.starting_pot as f32
+        }
+    }
+
+    /// Converts a relative exploitability target into raw utility units.
+    ///
+    /// `target_fraction` is a ratio, so `0.005` means `0.5%` of
+    /// [`exploitability_target_scale`](Self::exploitability_target_scale).
+    #[inline]
+    pub fn target_exploitability_from_fraction(&self, target_fraction: f32) -> f32 {
+        self.exploitability_target_scale() * target_fraction
+    }
+
     #[inline]
     pub(crate) fn terminal_icm_utility_for_node(
         &self,

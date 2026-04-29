@@ -513,6 +513,31 @@ fn bubble_factor_changes_terminal_payoff_vs_chipev() {
 }
 
 #[test]
+fn solve_with_result_reports_executed_iterations() {
+    let card_config = CardConfig {
+        range: [Range::ones(); 2],
+        flop: flop_from_str("Td9d6h").unwrap(),
+        ..Default::default()
+    };
+
+    let tree_config = TreeConfig {
+        starting_pot: 60,
+        effective_stack: 970,
+        river_bet_sizes: [("50%", "").try_into().unwrap(), Default::default()],
+        ..Default::default()
+    };
+
+    let action_tree = ActionTree::new(tree_config).unwrap();
+    let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+    game.allocate_memory(false);
+
+    let result = solve_with_result(&mut game, 3, 0.0, false);
+
+    assert_eq!(result.num_iterations, 3);
+    assert!(result.exploitability.is_finite());
+}
+
+#[test]
 fn tournament_icm_changes_internal_ev() {
     // be careful for straight flushes
     let lose_range_str = "KK-22,K9-K2,Q8-Q2,J8-J2,T8-T2,92+,82+,72+,62+";
@@ -543,11 +568,16 @@ fn tournament_icm_changes_internal_ev() {
     assert_eq!(game.tournament_icm_utility_count(), utility_count);
     assert!(utility_count > 0);
 
+    let expected_oop_delta = (30.0 + 40.0 * 1060.0 / 2060.0 - 50.0) as f32;
+    assert!((game.exploitability_target_scale() - expected_oop_delta).abs() < 1e-4);
+    assert!(
+        (game.target_exploitability_from_fraction(0.005) - expected_oop_delta * 0.005).abs() < 1e-7
+    );
+
     game.allocate_memory(false);
     finalize(&mut game);
 
     let current_ev = compute_current_ev(&game);
-    let expected_oop_delta = (30.0 + 40.0 * 1060.0 / 2060.0 - 50.0) as f32;
 
     assert!(current_ev[0] > 0.0);
     assert!(current_ev[1] < 0.0);

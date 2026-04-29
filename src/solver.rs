@@ -14,6 +14,16 @@ struct DiscountParams {
     gamma_t: f32,
 }
 
+/// Result of a [`solve_with_result`] call.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SolveResult {
+    /// Exploitability of the obtained strategy, in the game's utility units.
+    pub exploitability: f32,
+
+    /// Number of Discounted CFR iterations actually executed.
+    pub num_iterations: u32,
+}
+
 impl DiscountParams {
     pub fn new(current_iteration: u32) -> Self {
         // 0, 1, 4, 16, 64, 256, ...
@@ -46,6 +56,27 @@ pub fn solve<T: Game>(
     target_exploitability: f32,
     print_progress: bool,
 ) -> f32 {
+    solve_with_result(
+        game,
+        max_num_iterations,
+        target_exploitability,
+        print_progress,
+    )
+    .exploitability
+}
+
+/// Performs Discounted CFR algorithm until the given number of iterations or exploitability is
+/// satisfied.
+///
+/// This method returns both the exploitability of the obtained strategy and the number of executed
+/// iterations. For non-chipEV utility models such as tournament ICM, `target_exploitability` must
+/// be expressed in the same utility units as [`compute_exploitability`].
+pub fn solve_with_result<T: Game>(
+    game: &mut T,
+    max_num_iterations: u32,
+    target_exploitability: f32,
+    print_progress: bool,
+) -> SolveResult {
     if game.is_solved() {
         panic!("Game is already solved");
     }
@@ -56,6 +87,7 @@ pub fn solve<T: Game>(
 
     let mut root = game.root();
     let mut exploitability = compute_exploitability(game);
+    let mut num_iterations = 0;
 
     if print_progress {
         print!("iteration: 0 / {max_num_iterations} ");
@@ -82,6 +114,7 @@ pub fn solve<T: Game>(
                 &params,
             );
         }
+        num_iterations = t + 1;
 
         if (t + 1) % 10 == 0 || t + 1 == max_num_iterations {
             exploitability = compute_exploitability(game);
@@ -101,7 +134,10 @@ pub fn solve<T: Game>(
 
     finalize(game);
 
-    exploitability
+    SolveResult {
+        exploitability,
+        num_iterations,
+    }
 }
 
 /// Proceeds Discounted CFR algorithm for one iteration.
