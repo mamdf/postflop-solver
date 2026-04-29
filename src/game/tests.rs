@@ -670,6 +670,103 @@ fn tournament_icm_reported_fold_action_ev_is_zero_and_non_fold_is_delta() {
 }
 
 #[test]
+fn tournament_icm_reported_no_fold_node_uses_hypothetical_fold_equivalent() {
+    let card_config = CardConfig {
+        range: [Range::ones(); 2],
+        flop: flop_from_str("Td9d6h").unwrap(),
+        turn: card_from_str("Qc").unwrap(),
+        river: card_from_str("7s").unwrap(),
+    };
+
+    let tree_config = TreeConfig {
+        initial_state: BoardState::River,
+        starting_pot: 60,
+        effective_stack: 30,
+        river_bet_sizes: [("a", "").try_into().unwrap(), Default::default()],
+        ..Default::default()
+    };
+
+    let action_tree = ActionTree::new(tree_config).unwrap();
+    let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+    game.set_tournament_icm_config(TournamentIcmConfig {
+        stacks: vec![1000.0, 1000.0],
+        payouts: vec![70, 30],
+        oop_seat: 0,
+        ip_seat: 1,
+    })
+    .unwrap();
+
+    game.allocate_memory(false);
+    finalize(&mut game);
+    game.cache_normalized_weights();
+
+    assert!(!game.available_actions().contains(&Action::Fold));
+
+    let player = game.current_player();
+    let num_hands = game.num_private_hands(player);
+    let num_actions = game.available_actions().len();
+    let fold_equivalent = game
+        .tournament_icm_fold_equivalent_delta(player, game.total_bet_amount())
+        .unwrap();
+    let raw_detail = game.reported_expected_values_detail_uncentered_for_test(player);
+    let reported_detail = game.reported_expected_values_detail(player);
+    let legacy_detail = game.expected_values_detail(player);
+    let strategy = game.strategy();
+    let weights = game.normalized_weights(player);
+
+    assert!(fold_equivalent.abs() > 1e-7_f32);
+    assert_eq!(raw_detail.len(), num_actions * num_hands);
+    assert_eq!(reported_detail.len(), raw_detail.len());
+
+    for (hand_index, &weight) in weights.iter().enumerate() {
+        if weight == 0.0 {
+            continue;
+        }
+
+        for action_index in 0..num_actions {
+            let index = hand_index + action_index * num_hands;
+            assert!(
+                (reported_detail[index] - (raw_detail[index] - fold_equivalent)).abs() < 1e-6_f32
+            );
+        }
+    }
+
+    assert!(raw_detail
+        .iter()
+        .zip(reported_detail.iter())
+        .zip(weights.iter().cycle())
+        .any(|((&raw, &reported), &weight)| weight > 0.0 && (raw - reported).abs() > 1e-7_f32));
+    assert!(
+        legacy_detail
+            .iter()
+            .zip(reported_detail.iter())
+            .zip(weights.iter().cycle())
+            .any(|((&legacy, &reported), &weight)| weight > 0.0
+                && (legacy - reported).abs() > 1.0_f32)
+    );
+
+    let raw_current_ev: Vec<_> = (0..num_hands)
+        .map(|hand_index| {
+            (0..num_actions)
+                .map(|action_index| {
+                    let index = hand_index + action_index * num_hands;
+                    raw_detail[index] * strategy[index]
+                })
+                .sum::<f32>()
+        })
+        .collect();
+    let reported_current_ev = game.reported_expected_values(player);
+
+    assert!(raw_current_ev
+        .iter()
+        .zip(reported_current_ev.iter())
+        .zip(weights.iter())
+        .any(|((&raw, &reported), &weight)| {
+            weight > 0.0 && (reported - (raw - fold_equivalent)).abs() < 1e-6_f32
+        }));
+}
+
+#[test]
 fn tournament_icm_fold_uses_terminal_contributions() {
     let card_config = CardConfig {
         range: [Range::ones(); 2],

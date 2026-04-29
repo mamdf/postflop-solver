@@ -378,6 +378,27 @@ impl PostFlopGame {
             .and_then(|&utility| utility)
     }
 
+    pub(crate) fn tournament_icm_fold_equivalent_delta(
+        &self,
+        player: usize,
+        contribution: [i32; 2],
+    ) -> Option<f32> {
+        let config = self.tournament_icm_config.as_ref()?;
+        let baseline = self
+            .tournament_icm_values_for_terminal(config, [0, 0], None)
+            .ok()?;
+        let fold = self
+            .tournament_icm_values_for_terminal(config, contribution, Some(player ^ 1))
+            .ok()?;
+        let seat = if player == 0 {
+            config.oop_seat
+        } else {
+            config.ip_seat
+        };
+
+        Some((fold[seat] - baseline[seat]) as f32)
+    }
+
     /// Obtains the added lines.
     #[inline]
     pub fn added_lines(&self) -> &[Vec<Action>] {

@@ -753,23 +753,36 @@ impl PostFlopGame {
     /// [`expected_values`]: #method.expected_value
     /// [`cache_normalized_weights`]: #method.cache_normalized_weights
     pub fn expected_values_detail(&self, player: usize) -> Vec<f32> {
-        self.expected_values_detail_impl(player, false)
+        self.expected_values_detail_impl(player, false, false)
     }
 
     /// Returns public reported action EVs for each private hand.
     ///
     /// ChipEV and bubble-factor modes preserve legacy [`expected_values_detail`] semantics exactly.
-    /// Terminal ICM reports action payout deltas. At nodes with a fold action, deltas are reported
-    /// relative to folding for each hand so fold displays as `0.0`.
+    /// Terminal ICM reports action payout deltas relative to the current player's hypothetical
+    /// fold-equivalent at player action nodes, even when no real fold action is available.
     pub fn reported_expected_values_detail(&self, player: usize) -> Vec<f32> {
         if self.expected_value_unit() == ExpectedValueUnit::Chips {
             return self.expected_values_detail(player);
         }
 
-        self.expected_values_detail_impl(player, true)
+        self.expected_values_detail_impl(player, true, true)
     }
 
-    fn expected_values_detail_impl(&self, player: usize, report_payout: bool) -> Vec<f32> {
+    #[cfg(test)]
+    pub(crate) fn reported_expected_values_detail_uncentered_for_test(
+        &self,
+        player: usize,
+    ) -> Vec<f32> {
+        self.expected_values_detail_impl(player, true, false)
+    }
+
+    fn expected_values_detail_impl(
+        &self,
+        player: usize,
+        report_payout: bool,
+        center_report_payout: bool,
+    ) -> Vec<f32> {
         if self.state != State::Solved {
             panic!("Game is not solved");
         }
@@ -858,18 +871,19 @@ impl PostFlopGame {
                     });
             });
 
-        if report_payout && have_actions {
-            if let Some(fold_action) = (0..self.node().num_actions())
-                .find(|&action| self.node().play(action).prev_action == Action::Fold)
-            {
-                let fold_values =
-                    ret[fold_action * num_hands..(fold_action + 1) * num_hands].to_vec();
-                ret.chunks_exact_mut(num_hands).for_each(|row| {
-                    row.iter_mut()
-                        .zip(fold_values.iter())
-                        .for_each(|(value, fold_value)| *value -= *fold_value);
-                });
-            }
+        if report_payout && center_report_payout && have_actions {
+            let fold_equivalent = self
+                .tournament_icm_fold_equivalent_delta(player, total_bet_amount)
+                .expect("Tournament ICM fold-equivalent must be available for payout reporting");
+            ret.chunks_exact_mut(num_hands).for_each(|row| {
+                row.iter_mut()
+                    .zip(self.normalized_weights[player].iter())
+                    .for_each(|(value, &weight)| {
+                        if weight > 0.0 {
+                            *value -= fold_equivalent;
+                        }
+                    });
+            });
         }
 
         ret
