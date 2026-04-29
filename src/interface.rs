@@ -60,6 +60,12 @@ pub trait Game: Send + Sync {
         false
     }
 
+    /// Returns whether custom non-chipEV terminal utility is enabled.
+    #[doc(hidden)]
+    fn uses_custom_terminal_utility(&self) -> bool {
+        false
+    }
+
     /// Returns the list of indices that isomorphic chances refer to.
     #[doc(hidden)]
     fn isomorphic_chances(&self, _node: &Self::Node) -> &[u8] {

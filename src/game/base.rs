@@ -1,7 +1,9 @@
 use super::*;
 use crate::bunching::*;
+use crate::icm::{normalize_payouts, terminal_icm_values};
 use crate::interface::*;
 use crate::utility::*;
+use std::collections::BTreeMap;
 use std::mem::{self, MaybeUninit};
 
 #[cfg(feature = "rayon")]
@@ -84,6 +86,11 @@ impl Game for PostFlopGame {
     #[inline]
     fn uses_bubble_factor(&self) -> bool {
         self.tree_config.bubble_factor != [1.0, 1.0]
+    }
+
+    #[inline]
+    fn uses_custom_terminal_utility(&self) -> bool {
+        self.uses_bubble_factor() || self.uses_tournament_icm()
     }
 
     #[inline]
@@ -172,6 +179,7 @@ impl PostFlopGame {
 
         self.init_interpreter();
         self.reset_bunching_effect();
+        self.clear_tournament_icm_internal();
 
         Ok(())
     }
@@ -235,6 +243,103 @@ impl PostFlopGame {
     #[inline]
     pub fn uses_bubble_factor(&self) -> bool {
         self.tree_config.bubble_factor != [1.0, 1.0]
+    }
+
+    /// Configures exact tournament ICM terminal utility precomputation.
+    ///
+    /// This C1 runtime setting is intentionally not persisted by serialization yet. Strategy uses
+    /// the ICM deltas internally, while public displayed EV conversion is deferred to a later phase.
+    /// When enabled, solver utilities are payout-unit deltas, not chipEV pot units. Callers should
+    /// set `target_exploitability` in payout units (usually much smaller than chipEV pot-based
+    /// targets) or use `0.0` to force iterations when testing ICM behavior.
+    pub fn set_tournament_icm_config(
+        &mut self,
+        mut config: TournamentIcmConfig,
+    ) -> Result<usize, String> {
+        if self.state != State::TreeBuilt {
+            return Err("Tournament ICM can only be configured after tree build and before memory allocation".to_string());
+        }
+
+        if self.tree_config.rake_rate > 0.0 && self.tree_config.rake_cap > 0.0 {
+            return Err("Tournament ICM cannot be combined with rake in this phase".to_string());
+        }
+
+        if self.tree_config.bubble_factor != [1.0, 1.0] {
+            return Err(
+                "Tournament ICM cannot be combined with bubble factor in this phase".to_string(),
+            );
+        }
+
+        let player_count = config.stacks.len();
+        if player_count == 0 {
+            return Err("Tournament ICM stacks must not be empty".to_string());
+        }
+
+        if config.oop_seat >= player_count || config.ip_seat >= player_count {
+            return Err("Tournament ICM OOP/IP seats must be inside stacks".to_string());
+        }
+
+        if config.oop_seat == config.ip_seat {
+            return Err("Tournament ICM OOP/IP seats must be different".to_string());
+        }
+
+        if config
+            .stacks
+            .iter()
+            .any(|&stack| !stack.is_finite() || stack < 0.0)
+        {
+            return Err("Tournament ICM stacks must be finite and non-negative".to_string());
+        }
+
+        config.payouts = normalize_payouts(&config.payouts, player_count);
+
+        let baseline_values = self.tournament_icm_values_for_terminal(&config, [0, 0], None)?;
+        let baseline_oop = baseline_values[config.oop_seat];
+        let baseline_ip = baseline_values[config.ip_seat];
+
+        let utilities =
+            self.precompute_terminal_icm_utilities(&config, baseline_oop, baseline_ip)?;
+
+        self.tournament_icm_config = Some(config);
+        self.terminal_icm_utilities = utilities;
+
+        Ok(self.tournament_icm_utility_count())
+    }
+
+    /// Clears the runtime tournament ICM configuration.
+    pub fn clear_tournament_icm_config(&mut self) -> Result<(), String> {
+        if self.state != State::TreeBuilt {
+            return Err("Tournament ICM can only be cleared before memory allocation".to_string());
+        }
+
+        self.clear_tournament_icm_internal();
+        Ok(())
+    }
+
+    /// Returns whether exact tournament ICM terminal utilities are enabled.
+    #[inline]
+    pub fn uses_tournament_icm(&self) -> bool {
+        self.tournament_icm_config.is_some()
+    }
+
+    /// Returns the number of terminal nodes with precomputed ICM utilities.
+    #[inline]
+    pub fn tournament_icm_utility_count(&self) -> usize {
+        self.terminal_icm_utilities
+            .iter()
+            .filter(|utility| utility.is_some())
+            .count()
+    }
+
+    #[inline]
+    pub(crate) fn terminal_icm_utility_for_node(
+        &self,
+        node: &PostFlopNode,
+    ) -> Option<TerminalIcmUtility> {
+        let index = self.node_index(node);
+        self.terminal_icm_utilities
+            .get(index)
+            .and_then(|&utility| utility)
     }
 
     /// Obtains the added lines.
@@ -593,6 +698,168 @@ impl PostFlopGame {
         self.storage2 = Vec::new();
         self.storage_ip = Vec::new();
         self.storage_chance = Vec::new();
+    }
+
+    #[inline]
+    fn clear_tournament_icm_internal(&mut self) {
+        self.tournament_icm_config = None;
+        self.terminal_icm_utilities = Vec::new();
+    }
+
+    fn precompute_terminal_icm_utilities(
+        &self,
+        config: &TournamentIcmConfig,
+        baseline_oop: f64,
+        baseline_ip: f64,
+    ) -> Result<Vec<Option<TerminalIcmUtility>>, String> {
+        let mut utilities = vec![None; self.node_arena.len()];
+        let mut utility_cache = BTreeMap::<[i32; 2], TerminalIcmUtility>::new();
+        let effective_stack = self.tree_config.effective_stack;
+        let mut stack = vec![(0, [effective_stack, effective_stack], 0)];
+
+        while let Some((node_index, remaining, prev_amount)) = stack.pop() {
+            let node = self.node_arena[node_index].lock();
+
+            if node.is_terminal() {
+                let contribution = [
+                    effective_stack - remaining[0],
+                    effective_stack - remaining[1],
+                ];
+
+                for player in 0..2 {
+                    if contribution[player] < 0 {
+                        return Err(format!(
+                            "Tournament ICM terminal contribution for player {player} is negative"
+                        ));
+                    }
+
+                    let seat = if player == 0 {
+                        config.oop_seat
+                    } else {
+                        config.ip_seat
+                    };
+
+                    if config.stacks[seat] < contribution[player] as f64 {
+                        return Err(format!(
+                            "Tournament ICM active stack for player {player} cannot cover terminal contribution {}",
+                            contribution[player]
+                        ));
+                    }
+                }
+
+                let utility = if let Some(&utility) = utility_cache.get(&contribution) {
+                    utility
+                } else {
+                    let oop_win =
+                        self.tournament_icm_values_for_terminal(config, contribution, Some(0))?;
+                    let ip_win =
+                        self.tournament_icm_values_for_terminal(config, contribution, Some(1))?;
+                    let tie =
+                        self.tournament_icm_values_for_terminal(config, contribution, None)?;
+
+                    let utility = TerminalIcmUtility {
+                        win: [
+                            (oop_win[config.oop_seat] - baseline_oop) as f32,
+                            (ip_win[config.ip_seat] - baseline_ip) as f32,
+                        ],
+                        lose: [
+                            (ip_win[config.oop_seat] - baseline_oop) as f32,
+                            (oop_win[config.ip_seat] - baseline_ip) as f32,
+                        ],
+                        tie: [
+                            (tie[config.oop_seat] - baseline_oop) as f32,
+                            (tie[config.ip_seat] - baseline_ip) as f32,
+                        ],
+                    };
+                    utility_cache.insert(contribution, utility);
+                    utility
+                };
+
+                utilities[node_index] = Some(utility);
+
+                continue;
+            }
+
+            let player = (node.player & PLAYER_MASK) as usize;
+            for offset in 0..node.num_children as usize {
+                let child_index = node_index + node.children_offset as usize + offset;
+                let action = self.node_arena[child_index].lock().prev_action;
+                let (next_remaining, next_prev_amount) =
+                    Self::next_icm_contribution_state(player, action, remaining, prev_amount)?;
+                stack.push((child_index, next_remaining, next_prev_amount));
+            }
+        }
+
+        Ok(utilities)
+    }
+
+    fn next_icm_contribution_state(
+        player: usize,
+        action: Action,
+        mut remaining: [i32; 2],
+        mut prev_amount: i32,
+    ) -> Result<([i32; 2], i32), String> {
+        match action {
+            Action::Check | Action::Chance(_) | Action::Fold | Action::None => {}
+            Action::Call => {
+                if player >= 2 {
+                    return Err("Tournament ICM call action has invalid player".to_string());
+                }
+                remaining[player] = remaining[player ^ 1];
+                prev_amount = 0;
+            }
+            Action::Bet(amount) | Action::Raise(amount) | Action::AllIn(amount) => {
+                if player >= 2 {
+                    return Err("Tournament ICM bet action has invalid player".to_string());
+                }
+                let to_call = remaining[player] - remaining[player ^ 1];
+                let delta = amount - prev_amount + to_call;
+                if delta < 0 {
+                    return Err(format!(
+                        "Tournament ICM contribution delta is negative for {action:?}"
+                    ));
+                }
+                remaining[player] -= delta;
+                if remaining[player] < 0 {
+                    return Err(format!(
+                        "Tournament ICM contribution for player {player} exceeds effective stack after {action:?}"
+                    ));
+                }
+                prev_amount = amount;
+            }
+        }
+
+        Ok((remaining, prev_amount))
+    }
+
+    fn tournament_icm_values_for_terminal(
+        &self,
+        config: &TournamentIcmConfig,
+        contribution: [i32; 2],
+        winner: Option<usize>,
+    ) -> Result<Vec<f64>, String> {
+        let mut stacks = config.stacks.clone();
+        let starting_pot = self.tree_config.starting_pot as f64;
+        let contribution = [contribution[0] as f64, contribution[1] as f64];
+        let pot = starting_pot + contribution[0] + contribution[1];
+
+        match winner {
+            Some(0) => {
+                stacks[config.oop_seat] = stacks[config.oop_seat] - contribution[0] + pot;
+                stacks[config.ip_seat] -= contribution[1];
+            }
+            Some(1) => {
+                stacks[config.ip_seat] = stacks[config.ip_seat] - contribution[1] + pot;
+                stacks[config.oop_seat] -= contribution[0];
+            }
+            Some(_) => unreachable!(),
+            None => {
+                stacks[config.oop_seat] = stacks[config.oop_seat] - contribution[0] + pot * 0.5;
+                stacks[config.ip_seat] = stacks[config.ip_seat] - contribution[1] + pot * 0.5;
+            }
+        }
+
+        terminal_icm_values(&stacks, &config.payouts)
     }
 
     /// Counts the number of nodes in the game tree.

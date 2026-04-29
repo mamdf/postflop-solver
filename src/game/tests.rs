@@ -1,4 +1,5 @@
 use super::*;
+use crate::interface::{Game, GameNode};
 use crate::range::*;
 use crate::solver::*;
 use crate::utility::*;
@@ -509,6 +510,109 @@ fn bubble_factor_changes_terminal_payoff_vs_chipev() {
     assert!((icm_ev[0] - 45.0).abs() < 1e-4);
     assert!((icm_ev[1] - 0.0).abs() < 1e-4);
     assert!(icm_ev[0] < chip_ev[0]);
+}
+
+#[test]
+fn tournament_icm_changes_internal_ev() {
+    // be careful for straight flushes
+    let lose_range_str = "KK-22,K9-K2,Q8-Q2,J8-J2,T8-T2,92+,82+,72+,62+";
+    let card_config = CardConfig {
+        range: ["AA".parse().unwrap(), lose_range_str.parse().unwrap()],
+        flop: flop_from_str("AcAdKh").unwrap(),
+        ..Default::default()
+    };
+
+    let tree_config = TreeConfig {
+        starting_pot: 60,
+        effective_stack: 970,
+        ..Default::default()
+    };
+
+    let action_tree = ActionTree::new(tree_config).unwrap();
+    let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+    let utility_count = game
+        .set_tournament_icm_config(TournamentIcmConfig {
+            stacks: vec![1000.0, 1000.0],
+            payouts: vec![70, 30],
+            oop_seat: 0,
+            ip_seat: 1,
+        })
+        .unwrap();
+
+    assert!(game.uses_tournament_icm());
+    assert_eq!(game.tournament_icm_utility_count(), utility_count);
+    assert!(utility_count > 0);
+
+    game.allocate_memory(false);
+    finalize(&mut game);
+
+    let current_ev = compute_current_ev(&game);
+    let expected_oop_delta = (30.0 + 40.0 * 1060.0 / 2060.0 - 50.0) as f32;
+
+    assert!(current_ev[0] > 0.0);
+    assert!(current_ev[1] < 0.0);
+    assert!((current_ev[0] - expected_oop_delta).abs() < 1e-4);
+    assert!((current_ev[1] + expected_oop_delta).abs() < 1e-4);
+}
+
+#[test]
+fn tournament_icm_fold_uses_terminal_contributions() {
+    let card_config = CardConfig {
+        range: [Range::ones(); 2],
+        flop: flop_from_str("Td9d6h").unwrap(),
+        turn: card_from_str("Qc").unwrap(),
+        river: card_from_str("7s").unwrap(),
+    };
+
+    let tree_config = TreeConfig {
+        initial_state: BoardState::River,
+        starting_pot: 60,
+        effective_stack: 30,
+        river_bet_sizes: [("a", "").try_into().unwrap(), Default::default()],
+        ..Default::default()
+    };
+
+    let action_tree = ActionTree::new(tree_config).unwrap();
+    let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+    game.set_tournament_icm_config(TournamentIcmConfig {
+        stacks: vec![1000.0, 1000.0],
+        payouts: vec![70, 30],
+        oop_seat: 0,
+        ip_seat: 1,
+    })
+    .unwrap();
+
+    let allin_index = {
+        let root = game.root();
+        root.children()
+            .iter()
+            .position(|child| child.lock().prev_action == Action::AllIn(30))
+            .unwrap()
+    };
+
+    let (fold_amount, utility) = {
+        let root = game.root();
+        let allin = root.play(allin_index);
+        allin
+            .children()
+            .iter()
+            .find_map(|child| {
+                let child = child.lock();
+                (child.prev_action == Action::Fold).then(|| {
+                    (
+                        child.amount,
+                        game.terminal_icm_utility_for_node(&child).unwrap(),
+                    )
+                })
+            })
+            .unwrap()
+    };
+    let expected_oop_win = 30.0 + 40.0 * 1060.0 / 2060.0 - 50.0;
+
+    assert_eq!(fold_amount, 0);
+    assert!((utility.win[0] - expected_oop_win as f32).abs() < 1e-5);
+    assert!((utility.lose[1] + expected_oop_win as f32).abs() < 1e-5);
+    assert!(utility.win[0] > 0.0);
 }
 
 fn always_win_average_ev(bubble_factor: [f64; 2]) -> [f32; 2] {

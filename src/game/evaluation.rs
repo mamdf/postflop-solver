@@ -19,12 +19,25 @@ impl PostFlopGame {
         player: usize,
         cfreach: &[f32],
     ) {
-        let pot = (self.tree_config.starting_pot + 2 * node.amount) as f64;
-        let half_pot = 0.5 * pot;
-        let rake = min(pot * self.tree_config.rake_rate, self.tree_config.rake_cap);
-        let amount_win =
-            (half_pot - rake) / self.tree_config.bubble_factor[player] / self.num_combinations;
-        let amount_lose = -half_pot / self.num_combinations;
+        let icm_utility = self.terminal_icm_utility_for_node(node);
+        let (amount_win, amount_lose, amount_tie, rake) = if let Some(utility) = icm_utility {
+            (
+                utility.win[player] as f64 / self.num_combinations,
+                utility.lose[player] as f64 / self.num_combinations,
+                utility.tie[player] as f64 / self.num_combinations,
+                0.0,
+            )
+        } else {
+            let pot = (self.tree_config.starting_pot + 2 * node.amount) as f64;
+            let half_pot = 0.5 * pot;
+            let rake = min(pot * self.tree_config.rake_rate, self.tree_config.rake_cap);
+            (
+                (half_pot - rake) / self.tree_config.bubble_factor[player] / self.num_combinations,
+                -half_pot / self.num_combinations,
+                -0.5 * rake / self.num_combinations,
+                rake,
+            )
+        };
 
         let player_cards = &self.private_cards[player];
         let opponent_cards = &self.private_cards[player ^ 1];
@@ -152,7 +165,6 @@ impl PostFlopGame {
         }
         // showdown (raked; 3-pass)
         else {
-            let amount_tie = -0.5 * rake / self.num_combinations;
             let same_hand_index = &self.same_hand_index[player];
 
             let pair_index = card_pair_to_index(node.turn, node.river);
@@ -260,14 +272,25 @@ impl PostFlopGame {
         player: usize,
         cfreach: &[f32],
     ) {
-        let pot = (self.tree_config.starting_pot + 2 * node.amount) as f64;
-        let half_pot = 0.5 * pot;
-        let rake = min(pot * self.tree_config.rake_rate, self.tree_config.rake_cap);
-        let amount_win = ((half_pot - rake)
-            / self.tree_config.bubble_factor[player]
-            / self.bunching_num_combinations) as f32;
-        let amount_lose = (-half_pot / self.bunching_num_combinations) as f32;
-        let amount_tie = (-0.5 * rake / self.bunching_num_combinations) as f32;
+        let (amount_win, amount_lose, amount_tie) =
+            if let Some(utility) = self.terminal_icm_utility_for_node(node) {
+                (
+                    utility.win[player] / self.bunching_num_combinations as f32,
+                    utility.lose[player] / self.bunching_num_combinations as f32,
+                    utility.tie[player] / self.bunching_num_combinations as f32,
+                )
+            } else {
+                let pot = (self.tree_config.starting_pot + 2 * node.amount) as f64;
+                let half_pot = 0.5 * pot;
+                let rake = min(pot * self.tree_config.rake_rate, self.tree_config.rake_cap);
+                (
+                    ((half_pot - rake)
+                        / self.tree_config.bubble_factor[player]
+                        / self.bunching_num_combinations) as f32,
+                    (-half_pot / self.bunching_num_combinations) as f32,
+                    (-0.5 * rake / self.bunching_num_combinations) as f32,
+                )
+            };
         let opponent_len = self.private_cards[player ^ 1].len();
 
         // someone folded

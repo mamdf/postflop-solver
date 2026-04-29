@@ -67,6 +67,7 @@ mod card;
 mod game;
 mod hand;
 mod hand_table;
+mod icm;
 mod interface;
 mod mutex_like;
 mod range;

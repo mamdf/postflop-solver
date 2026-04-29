@@ -112,6 +112,26 @@ pub struct PostFlopGame {
     weights: [Vec<f32>; 2],
     normalized_weights: [Vec<f32>; 2],
     cfvalues_cache: [Vec<f32>; 2],
+
+    // Tournament ICM is runtime-only in C1 and is not persisted by custom serialization yet.
+    tournament_icm_config: Option<TournamentIcmConfig>,
+    terminal_icm_utilities: Vec<Option<TerminalIcmUtility>>,
+}
+
+/// Runtime tournament ICM configuration for exact terminal utility precomputation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TournamentIcmConfig {
+    pub stacks: Vec<f64>,
+    pub payouts: Vec<i32>,
+    pub oop_seat: usize,
+    pub ip_seat: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct TerminalIcmUtility {
+    pub(crate) win: [f32; 2],
+    pub(crate) lose: [f32; 2],
+    pub(crate) tie: [f32; 2],
 }
 
 /// A struct representing a node in a postflop game tree.

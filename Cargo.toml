@@ -26,3 +26,7 @@ criterion = "0.5.1"
 [[bench]]
 name = "web_case"
 harness = false
+
+[[bench]]
+name = "icm_precompute"
+harness = false
