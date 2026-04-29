@@ -118,6 +118,14 @@ pub struct PostFlopGame {
     terminal_icm_utilities: Vec<Option<TerminalIcmUtility>>,
 }
 
+/// Public unit used by additive EV reporting APIs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "bincode", derive(Decode, Encode))]
+pub enum ExpectedValueUnit {
+    Chips,
+    PayoutDelta,
+}
+
 /// Runtime tournament ICM configuration for exact terminal utility precomputation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TournamentIcmConfig {

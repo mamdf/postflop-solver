@@ -26,12 +26,17 @@ fn all_check_all_range() {
     finalize(&mut game);
 
     game.cache_normalized_weights();
+    assert_eq!(game.expected_value_unit(), ExpectedValueUnit::Chips);
     let weights_oop = game.normalized_weights(0);
     let weights_ip = game.normalized_weights(1);
     let equity_oop = compute_average(&game.equity(0), weights_oop);
     let equity_ip = compute_average(&game.equity(1), weights_ip);
-    let ev_oop = compute_average(&game.expected_values(0), weights_oop);
-    let ev_ip = compute_average(&game.expected_values(1), weights_ip);
+    let legacy_ev_oop = game.expected_values(0);
+    let legacy_ev_ip = game.expected_values(1);
+    assert_eq!(game.reported_expected_values(0), legacy_ev_oop);
+    assert_eq!(game.reported_expected_values(1), legacy_ev_ip);
+    let ev_oop = compute_average(&legacy_ev_oop, weights_oop);
+    let ev_ip = compute_average(&legacy_ev_ip, weights_ip);
     assert!((equity_oop - 0.5).abs() < 1e-5);
     assert!((equity_ip - 0.5).abs() < 1e-5);
     assert!((ev_oop - 30.0).abs() < 1e-4);
@@ -576,13 +581,92 @@ fn tournament_icm_changes_internal_ev() {
 
     game.allocate_memory(false);
     finalize(&mut game);
+    game.cache_normalized_weights();
+
+    assert_eq!(game.expected_value_unit(), ExpectedValueUnit::PayoutDelta);
 
     let current_ev = compute_current_ev(&game);
+    let legacy_ev = game.expected_values(0);
+    let reported_ev = game.reported_expected_values(0);
 
     assert!(current_ev[0] > 0.0);
     assert!(current_ev[1] < 0.0);
     assert!((current_ev[0] - expected_oop_delta).abs() < 1e-4);
     assert!((current_ev[1] + expected_oop_delta).abs() < 1e-4);
+    assert!(legacy_ev
+        .iter()
+        .zip(reported_ev.iter())
+        .any(|(&legacy, &reported)| (legacy - reported).abs() > 1.0));
+}
+
+#[test]
+fn tournament_icm_reported_fold_action_ev_is_zero_and_non_fold_is_delta() {
+    let card_config = CardConfig {
+        range: [Range::ones(); 2],
+        flop: flop_from_str("Td9d6h").unwrap(),
+        turn: card_from_str("Qc").unwrap(),
+        river: card_from_str("7s").unwrap(),
+    };
+
+    let tree_config = TreeConfig {
+        initial_state: BoardState::River,
+        starting_pot: 60,
+        effective_stack: 30,
+        river_bet_sizes: [("a", "").try_into().unwrap(), Default::default()],
+        ..Default::default()
+    };
+
+    let action_tree = ActionTree::new(tree_config).unwrap();
+    let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+    game.set_tournament_icm_config(TournamentIcmConfig {
+        stacks: vec![1000.0, 1000.0],
+        payouts: vec![70, 30],
+        oop_seat: 0,
+        ip_seat: 1,
+    })
+    .unwrap();
+
+    game.allocate_memory(false);
+    finalize(&mut game);
+
+    let allin_index = game
+        .available_actions()
+        .iter()
+        .position(|&action| action == Action::AllIn(30))
+        .unwrap();
+    game.play(allin_index);
+    game.cache_normalized_weights();
+
+    let player = game.current_player();
+    let num_hands = game.num_private_hands(player);
+    let fold_index = game
+        .available_actions()
+        .iter()
+        .position(|&action| action == Action::Fold)
+        .unwrap();
+    let legacy_detail = game.expected_values_detail(player);
+    let reported_detail = game.reported_expected_values_detail(player);
+    let weights = game.normalized_weights(player);
+
+    let fold_legacy = &legacy_detail[fold_index * num_hands..(fold_index + 1) * num_hands];
+    let fold_reported = &reported_detail[fold_index * num_hands..(fold_index + 1) * num_hands];
+    let non_fold_reported = reported_detail
+        .chunks_exact(num_hands)
+        .enumerate()
+        .filter(|(action_index, _)| *action_index != fold_index)
+        .flat_map(|(_, row)| row.iter());
+
+    assert!(fold_legacy
+        .iter()
+        .zip(weights.iter())
+        .all(|(&ev, &weight)| weight == 0.0 || ev == 0.0));
+    assert!(fold_reported
+        .iter()
+        .zip(weights.iter())
+        .all(|(&ev, &weight)| weight == 0.0 || ev.abs() < 1e-7));
+    assert!(non_fold_reported
+        .zip(weights.iter().cycle())
+        .any(|(&ev, &weight)| weight > 0.0 && ev.abs() > 1e-7));
 }
 
 #[test]

@@ -690,6 +690,48 @@ impl PostFlopGame {
         ret
     }
 
+    /// Returns the unit used by the additive reported EV APIs.
+    #[inline]
+    pub fn expected_value_unit(&self) -> ExpectedValueUnit {
+        if self.uses_tournament_icm() {
+            ExpectedValueUnit::PayoutDelta
+        } else {
+            ExpectedValueUnit::Chips
+        }
+    }
+
+    /// Returns public reported EVs for each private hand.
+    ///
+    /// ChipEV and bubble-factor modes preserve legacy [`expected_values`] semantics exactly. Terminal
+    /// ICM reports payout deltas instead of absolute tournament-equity values or chipEV pot offsets.
+    pub fn reported_expected_values(&self, player: usize) -> Vec<f32> {
+        if self.expected_value_unit() == ExpectedValueUnit::Chips {
+            return self.expected_values(player);
+        }
+
+        let expected_value_detail = self.reported_expected_values_detail(player);
+
+        if self.is_terminal_node() || self.is_chance_node() || self.current_player() != player {
+            return expected_value_detail;
+        }
+
+        let num_actions = self.node().num_actions();
+        let num_hands = self.num_private_hands(player);
+        let strategy = self.strategy();
+
+        let mut ret = Vec::with_capacity(num_hands);
+        for i in 0..num_hands {
+            let mut expected_value = 0.0;
+            for j in 0..num_actions {
+                let index = i + j * num_hands;
+                expected_value += expected_value_detail[index] * strategy[index];
+            }
+            ret.push(expected_value);
+        }
+
+        ret
+    }
+
     /// Returns the expected values of each action of each private hand of the given player.
     ///
     /// If the given player is the current player, the return value is a vector of the length of
@@ -711,6 +753,23 @@ impl PostFlopGame {
     /// [`expected_values`]: #method.expected_value
     /// [`cache_normalized_weights`]: #method.cache_normalized_weights
     pub fn expected_values_detail(&self, player: usize) -> Vec<f32> {
+        self.expected_values_detail_impl(player, false)
+    }
+
+    /// Returns public reported action EVs for each private hand.
+    ///
+    /// ChipEV and bubble-factor modes preserve legacy [`expected_values_detail`] semantics exactly.
+    /// Terminal ICM reports action payout deltas. At nodes with a fold action, deltas are reported
+    /// relative to folding for each hand so fold displays as `0.0`.
+    pub fn reported_expected_values_detail(&self, player: usize) -> Vec<f32> {
+        if self.expected_value_unit() == ExpectedValueUnit::Chips {
+            return self.expected_values_detail(player);
+        }
+
+        self.expected_values_detail_impl(player, true)
+    }
+
+    fn expected_values_detail_impl(&self, player: usize, report_payout: bool) -> Vec<f32> {
         if self.state != State::Solved {
             panic!("Game is not solved");
         }
@@ -778,7 +837,6 @@ impl PostFlopGame {
         let starting_pot = self.tree_config.starting_pot;
         let total_bet_amount = self.total_bet_amount();
         let bias = (total_bet_amount[player] - total_bet_amount[player ^ 1]).max(0);
-
         ret.chunks_exact_mut(num_hands)
             .enumerate()
             .for_each(|(action, row)| {
@@ -788,14 +846,31 @@ impl PostFlopGame {
                     .zip(self.weights[player].iter())
                     .zip(self.normalized_weights[player].iter())
                     .for_each(|((v, &w_raw), &w_normalized)| {
-                        if is_fold || w_normalized == 0.0 {
+                        if w_normalized == 0.0 || (!report_payout && is_fold) {
                             *v = 0.0;
                         } else {
                             *v *= normalizer * (w_raw / w_normalized);
-                            *v += starting_pot as f32 * 0.5 + (self.node().amount + bias) as f32;
+                            if !report_payout {
+                                *v +=
+                                    starting_pot as f32 * 0.5 + (self.node().amount + bias) as f32;
+                            }
                         }
                     });
             });
+
+        if report_payout && have_actions {
+            if let Some(fold_action) = (0..self.node().num_actions())
+                .find(|&action| self.node().play(action).prev_action == Action::Fold)
+            {
+                let fold_values =
+                    ret[fold_action * num_hands..(fold_action + 1) * num_hands].to_vec();
+                ret.chunks_exact_mut(num_hands).for_each(|row| {
+                    row.iter_mut()
+                        .zip(fold_values.iter())
+                        .for_each(|(value, fold_value)| *value -= *fold_value);
+                });
+            }
+        }
 
         ret
     }
