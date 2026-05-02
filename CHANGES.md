@@ -1,5 +1,10 @@
 # List of breaking changes
 
+## 2026-04-29
+
+- `PostFlopGame`: runtime tournament ICM configuration is added through `TournamentIcmConfig` and precomputed terminal payout-delta utilities. This mode is not persisted by custom serialization yet and cannot currently be combined with rake or bubble-factor payoff scaling.
+- `PostFlopGame`: solve result metadata and target exploitability scaling now account for payout-delta utility units when tournament ICM mode is enabled.
+
 ## 2026-04-28
 
 - `TreeConfig`: new field `bubble_factor: [f64; 2]` is added. The default `[1.0, 1.0]` preserves chipEV behavior; values must be finite and positive.

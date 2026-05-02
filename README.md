@@ -15,6 +15,15 @@ Documentation: https://b-inary.github.io/postflop_solver/postflop_solver/
 - Web app (WASM Postflop): https://github.com/b-inary/wasm-postflop
 - Desktop app (Desktop Postflop): https://github.com/b-inary/desktop-postflop
 
+**Fork notes:**
+This fork adds experimental tournament-oriented utilities on top of
+`b-inary/postflop-solver`, including bubble-factor terminal payoff scaling and
+runtime tournament ICM terminal utility precomputation. The bubble-factor work
+is related to prior work in `null22277/postflop-solver`, and the ICM approach is
+related to `null22277/icm-calculator`; the implementation here is integrated
+directly into the postflop game tree rather than using the standalone calculator
+as a crate dependency.
+
 **Note:**
 The primary purpose of this library is to serve as a backend engine for the GUI applications ([WASM Postflop] and [Desktop Postflop]).
 The direct use of this library by the users/developers is not a critical purpose by design.
