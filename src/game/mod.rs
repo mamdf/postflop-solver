@@ -126,6 +126,29 @@ pub enum ExpectedValueUnit {
     PayoutDelta,
 }
 
+/// Raw storage element counts that back [`PostFlopGame::memory_usage`].
+///
+/// These counts proxy the action-tree size and are stable across compression
+/// settings, making them suitable as features for runtime predictors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct StorageCounts {
+    /// Storage elements for OOP-perspective action regrets/strategy at action nodes.
+    pub num_storage: u64,
+    /// Storage elements for IP-perspective regrets/strategy at action nodes.
+    pub num_storage_ip: u64,
+    /// Storage elements for chance (turn/river card) transitions.
+    pub num_storage_chance: u64,
+}
+
+impl StorageCounts {
+    /// Total elements: `2 * num_storage + num_storage_ip + num_storage_chance`,
+    /// matching the formula used inside [`PostFlopGame::memory_usage`].
+    #[inline]
+    pub fn total_elements(&self) -> u64 {
+        2 * self.num_storage + self.num_storage_ip + self.num_storage_chance
+    }
+}
+
 /// Runtime tournament ICM configuration for exact terminal utility precomputation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TournamentIcmConfig {

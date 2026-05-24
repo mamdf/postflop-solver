@@ -441,6 +441,22 @@ impl PostFlopGame {
         (uncompressed, compressed)
     }
 
+    /// Returns the raw storage element counts that back [`Self::memory_usage`].
+    ///
+    /// Intended for runtime predictors and capacity planning: these counts
+    /// proxy the action-tree size and do not depend on `compression`.
+    #[inline]
+    pub fn storage_counts(&self) -> StorageCounts {
+        if self.state <= State::Uninitialized {
+            panic!("Game is not successfully initialized");
+        }
+        StorageCounts {
+            num_storage: self.num_storage,
+            num_storage_ip: self.num_storage_ip,
+            num_storage_chance: self.num_storage_chance,
+        }
+    }
+
     /// Returns the estimated additional memory usage in bytes when the bunching effect is enabled.
     #[inline]
     pub fn memory_usage_bunching(&self) -> u64 {
