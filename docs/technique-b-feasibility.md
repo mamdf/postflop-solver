@@ -189,9 +189,11 @@ equilibrium.
 - **Turn save (drops river):** strong compression with cheap recompute — the
   **hypothesized sweet spot** (pending measurement). What's dropped is only the river
   subtrees; a river re-solve is a tiny action tree, zero chance nodes, two
-  reach-weighted ranges on a fixed board. Mirrors PioSOLVER `no_rivers`. ⚠️ the disk
-  win of a turn file *over the existing River-compact save* is **unmeasured** — size
-  it with `estimate_river_save_size` (`solution.rs:232`) before claiming it.
+  reach-weighted ranges on a fixed board. Mirrors PioSOLVER `no_rivers`. ✅ the disk
+  win of a turn file *over the existing River-compact save* is now **measured** at ~14×
+  on one spot (5.1 MB → 0.35 MB; see Phase 3 results) — but `estimate_river_save_size`
+  (`solution.rs:232`) models only the River strategy buffer, so size any new spot with a
+  real Turn save, not the estimator.
 - **River save (current default):** strategy-only, full tree navigable, CFVs
   recomputed at load via deterministic `finalize()` — a one-pass value recompute, no
   CFR, no on-demand re-solve. Largest on disk of the modes, cheapest "recompute".
@@ -225,7 +227,7 @@ super-linearly. But "river re-solve = sub-second" is a **hypothesis**:
   the `node_input_ranges_across_isomorphic_chance` regression test. Bunching is guarded
   out.
 
-**Phase 2 — Map the adapter injection seam.**
+**Phase 2 — Map the adapter injection seam. ✅ MAPPED** (see Phase 2 results below).
 Read `spot_navigation.rs`, `spot_solution.rs`, `engines/export.rs` in
 `postflop-solver-api`. Decide where the "non-resident node → build+solve river subgame
 → serve from it" branch lives, *before* the chance `play()` that crosses into the
@@ -233,7 +235,7 @@ dropped street. Open question: build a **separate** river `PostFlopGame` (the
 `turn_resolve.rs` pattern, clean) and have `export` read from it, vs splicing storage
 back into the parent arena (fragile pointer bookkeeping — likely rejected).
 
-**Phase 3 — Decide the artifact mode.**
+**Phase 3 — Decide the artifact mode. ✅ DECIDED — turn-mode file** (see Phase 3 results below).
 Re-read `serialization.rs:142-146` (truncation) and `interpreter.rs:284-290` (the panic
 proving a turn file cannot navigate the river). Open question: do we need a turn-mode
 *file*, or is it cheaper to keep a navigable River-strategy-only save (already
@@ -249,7 +251,7 @@ river-only game with production-fat river sizings, and time `solve_with_result` 
 the contrast. Success: **median river re-solve comfortably under ~1 s** at the
 production target. If not, the cheap-recompute premise fails for our tree.
 
-**Phase 5 — Determinism / caching policy.**
+**Phase 5 — Determinism / caching policy. ✅ MAPPED** (see Phase 5 results below).
 Confirm two identical re-solves match. Define the provenance-explicit cache key. Decide
 whether the re-solve runs inside or outside the `SolveSession` mutex — a single-thread
 river solve of a few hundred ms would block all session ops, so **a result cache turns
@@ -311,6 +313,228 @@ example-only helper.
 
 ---
 
+## Phase 2 results (mapped)
+
+The injection seam is **forced by control flow**, not chosen. The adapter crosses a street
+boundary in exactly one place: `apply_navigation_steps` loops over `NavigationStep`s and,
+for a `ChanceCard`, resolves the card then calls `game.play(index)`
+(`postflop-solver-api/src/application/spot_navigation.rs:195-200`). That `play()` is the
+**same call** that trips the non-resident guard `panic!("Storage mode is not compatible")`
+(`interpreter.rs:290`). So the hook is unambiguous: a non-resident pre-check placed
+**immediately before `game.play(index)`**, inside the `ChanceCard` arm — before the deal
+crosses into the dropped street. (Verified: a chance/river node is reached *only* through
+this loop; the only other `.play()` in the adapter is `export.rs:682`, unrelated.)
+
+**Detection — a positive pre-check, never the panic.** The guard's predicate is
+`storage_mode == Flop || (!is_turn && storage_mode == Turn)`, with
+`is_turn = (self.turn == NOT_DEALT)` (`interpreter.rs:286-291`). Reconstruct it from public
+accessors so the adapter never reaches the panic (it aborts with no recovery contract and
+would kill the request thread):
+- `PostFlopGame::storage_mode()` (`serialization.rs:15-23`) — public, `#[inline]`, a plain
+  field read; doc: "the deepest accessible node in the game tree".
+- `is_turn` proxy: at a chance node `current_board().len() == 3` ⟺ the **turn** is the
+  pending deal (`is_turn` true); `== 4` ⟺ the **river** is pending, because
+  `current_board()` pushes the turn card only when `turn != NOT_DEALT`
+  (`interpreter.rs:246-257`) — the same field `is_turn` tests.
+
+Non-resident ⟺ `storage_mode() == Flop`, **or** (`storage_mode() == Turn` **and**
+`current_board().len() == 4`). The Technique-B target is the second case: a turn-mode save,
+river deal pending.
+
+**Option A (separate river game) over Option B (splice the arena).** Every export reader
+takes a bare `&[mut] PostFlopGame` as its only data source — `export_current_solution`
+(`postflop-solver-api/src/engines/export.rs:76`), `export_current_game` (`:301`),
+`export_current_node_contract` (`:28`) — and `spot_solution.rs:30-31` simply hands them
+`&session.game` (a plain `PostFlopGame` field, `state/mod.rs:34`). So serving a re-solved
+river is a **clean object substitution**: build a separate `BoardState::River`
+`PostFlopGame` (the `turn_resolve.rs` pattern — `node_input_ranges()` for the two seed
+ranges (`interpreter.rs:590-598`), `total_bet_amount()` for pot/stack
+(`turn_resolve.rs:98-100`), `allocate_memory` + `solve`), then route the export calls at
+`spot_solution.rs:30-31` to that game instead of `session.game`. The re-rooted game must be
+**fully built and mutable**: export mutates it — `inspect_action_transitions` walks
+`apply_history` (`export.rs:201,207`), `export_current_solution` calls
+`cache_normalized_weights` (`export.rs:85`). Option B (graft node storage/indices into the
+parent arena) is rejected: the crate exposes no API for it (`node_index`/`node_history` are
+private), so it means hand-maintaining pointer bookkeeping the library keeps internal — all
+risk, no reader-side benefit, since readers don't care which game object they receive.
+
+**Open (carry into prototype):**
+- Pot/stack derivation is still example-only (`turn_resolve.rs:98-100`); no shared, tested
+  helper exists, and an off-by-one silently corrupts the subgame. The river formula
+  (`effective_stack − max(invested)`) was not separately re-verified for the river root.
+- After re-solving, the river *action* steps that follow the deal in the same line must
+  replay on the **separate** river game; `apply_navigation_steps` drives a single game
+  object today, so splitting navigation at the river boundary is unimplemented.
+- Whether a session loaded from a turn-mode artifact actually reports `storage_mode() ==
+  Turn` at runtime was not traced (`base.rs:563` sets `storage_mode = River` on allocation
+  in at least one path) — confirm on a real Turn round-trip.
+
+---
+
+## Phase 3 results (artifact mode decided)
+
+**Decision: produce a TURN-mode file; re-solve only the river nodes it dropped.** Not the
+navigable River-compact save with a river re-solve bolted on — that path is both
+unnecessary for disk and unsafe.
+
+**What each mode physically stores.** River mode writes only the strategy buffer `storage1`
+and zero-fills + recomputes the counterfactual buffers at load via `finalize()`
+(`serialization.rs:68-71`, `:215-220`, `:258-261`); the whole tree — including the river —
+stays navigable with its own finalized equilibrium (`docs/compact-solution.md:37`). Turn
+mode instead truncates the node arena to flop+turn and never encodes the river node slice
+`num_nodes[2]` (`serialization.rs:142-146`, `:174`); flop and turn reload **complete**, the
+river is simply absent. Flop mode keeps only `num_nodes[0]`. (The `num_nodes` triple itself
+is still serialized at `:131`, so Turn drops the river *node data*, not the count metadata.)
+
+**Why River-compact is the wrong base.** A River file's river is already resident and
+serviceable from its finalized strategy, so re-solving a river node there produces *two
+equilibria for one node* (footgun #3) for **zero** disk benefit. Only Turn mode creates
+genuine non-residence to fill on demand.
+
+**Disk reality check — now measured (the report's "UNMEASURED" flag was stale).** On flop
+`Ac9d2s`, 24bb, f32 + zstd L12: **River = 5.1 MB, Turn = 0.35 MB** — a ~14× reduction
+(`docs/compact-solution.md:77-80`). These are real file sizes (`fs::metadata(path).len()`,
+`benches/compact_save.rs:169-177`) written through the same `save_solution` path for both
+modes (`:126-135`), not estimates. The win is tree-shape-driven, not spot noise: the river
+slice is `action_nodes[2] × river_coef` with `river_coef` summing ~44-48 runouts per
+surviving turn (`base.rs:962-988`), so dropping `num_nodes[2]` removes the structural bulk.
+⚠️ **Do not generalize the 14×.** It is one small spot; `estimate_river_save_size` models
+the **River** strategy buffer only (`solution.rs:218-251`) and cannot predict a Turn file,
+so size any production-representative spot with a real Turn save before quoting a multiplier.
+
+**The coexistence invariant, drawn from code.** A node is **genuinely non-resident** iff
+navigating into it via `play()` would trip the chance-node guard at `interpreter.rs:287-290`
+(`panic if storage_mode==Flop || (!is_turn && storage_mode==Turn)`, with
+`is_turn = self.turn == NOT_DEALT`). Under a **Turn** file: the turn-deal chance node
+(`is_turn==true`) is **resident-and-serviceable**; the river-deal chance node (`!is_turn`)
+is **non-resident** and is precisely the node to re-solve. Everything reachable without
+tripping that guard — flop, turn, all turn action nodes — the parent already serves and
+**must never be re-solved**. The invariant is therefore not a new convention to police: the
+re-solve branch *replaces* the existing panic at that one site.
+
+**Constraint on producing the artifact.** A Turn save requires `initial_state <= Turn`:
+`set_target_storage_mode` rejects a target below the tree's initial state or above allocated
+storage (`serialization.rs:33-44`; test `solution.rs:371-398`). So the seed for a river
+re-solve is always a flop- or turn-rooted game whose turn strategy is retained — exactly the
+reach source Phase 1's `node_input_ranges` consumes.
+
+**Open gaps (verify before wiring).** (1) Confirm Turn mode actually retains turn-level
+*values* (`storage2/ip/chance`) and not just strategy — the `num_target_storage` arena walk
+(`serialization.rs:62-100`) was not traced end-to-end for Turn. (2) No Turn-mode save/load
+**round-trip** test exists (only a turn-rooted build and a rejection test); add one
+asserting turn navigates and river panics before depending on Turn artifacts.
+
+---
+
+## Phase 5 results (determinism / caching / concurrency)
+
+**Reproducibility precondition — confirmed.** The DCFR loop samples exploitability only
+every 10 iterations (or at the last iter) and otherwise runs to `max_num_iterations`
+(`solver.rs:98-121`); the early break compares against a value up to ~10 iters stale. So a
+bit-reproducible re-solve requires pinning **both** `max_num_iterations` **and**
+`target_exploitability` — the stopping point is a joint function of the two. `src/` has **no
+RNG** (`rg "rng|random|thread_rng"` empty), and `finalize()` runs unconditionally before
+return (`solver.rs:135`), so a returned game is `Solved` (satisfying Gate A for
+`node_input_ranges`). This is the mechanism behind Phase 4's bit-identical re-solves.
+
+**Cache key — provenance is mostly already materialized.** The adapter already computes a
+SHA-256 `spot_hash` over a fixed-field `CanonicalSpotKey` that includes board, the full
+per-street tree config, `solve_max_iterations`, `solve_target_exploitability`,
+`solve_compression`, and `ev_model` (`postflop-solver-api/src/store/hash.rs:9-42,88-93`;
+floats hashed bit-exact via `to_bits`). Precisely: `spot_hash` is the identity of a specific
+**solve request/invocation**, *not* an equilibrium per se — two identical game spots with
+different iteration budgets hash differently and are stored as separate rows (test
+`different_max_iterations_does_not_alias`, `solve_spot.rs:247-262`). That request-level
+determinism is exactly what a provenance-explicit re-solve key wants: it is the reuse key at
+every level and the PK of the only result table (`solve_spot.rs:21-54`, `store/schema.rs:7`),
+so pin the same budget and a hit provably maps to one parent solve. The re-solve cache key
+is therefore `parent spot_hash` **+** the river-local fields the adapter must add at the
+seam: the dealt river card, the two derived input ranges (or their hash), and the derived
+subgame pot/stack.
+
+**Mutex placement — a result cache is mandatory (prospective, not current behavior).** The
+seam does *no* solve today: `apply_navigation_steps` is pure navigation (`back_to_root` +
+`play` loop, `spot_navigation.rs:161-204`). But a re-solve injected there **would** run
+inside the per-session `Mutex<SolveSession>` (`state/mod.rs:28`), which is held across the
+entire navigate+export window (`spot_solution.rs:22-34`). A ~100 ms single-thread river
+solve (Phase 4) would then block every subsequent query on **that** session — the lock is
+per-session, not global (the manager lock is released after fetching the `Arc`,
+`spot_solution.rs:15-20`). There is **no result cache today**: the only cache symbol is
+`cache_normalized_weights()`, a display/equity weight memo gated on
+`is_normalized_weight_cached` (`interpreter.rs:440-552`), not a CFR cache. Policy: build the
+river subgame as a **separate** `PostFlopGame` (the `turn_resolve.rs` pattern, not mutation
+of the parent arena) and compute-and-cache, so the expensive CFR runs at most once per
+`(parent spot_hash, river-node)` key. The cache is what bounds worst-case lock contention to
+a single solve per key.
+
+**Labeling rule.** Served re-solved values are the Nash of the **isolated** river subgame
+given fixed input ranges (`turn_resolve.rs:11-17`) — not the full-game equilibrium. Per
+footgun #3, never mix them with the parent's finalized values on the same board: only
+re-solve genuinely **non-resident** river nodes (those a turn-mode save dropped), never a
+node the parent can serve via `finalize()`. Phase 4's bit-identical re-solves make caching
+exactly one such labeled, isolated-subgame value per key safe and deterministic.
+
+**Open for design:** where the first-miss CFR runs relative to the lock (hold throughout vs.
+release-compute-reacquire); in-process cache vs. persisted SQLite table (persistence is safe
+given determinism but needs an architecture/binary discriminator for the known
+native-vs-wasm32 f32 divergence); and the not-yet-wired non-resident-node detection branch
+(`apply_navigation_steps` currently assumes every node is resident).
+
+---
+
+## Isomorphism dedup (optional)
+
+**Status: confirmed real, recommended SKIP / defer.** Two suit-isomorphic input flops
+(`AcKcQc` vs `AhKhQh`) are **distinct** spots end-to-end today: the adapter hashes the flop
+as a raw string, never canonicalized.
+
+**Confirmed in code.** `spot_hash` projects the flop verbatim — `CanonicalSpotKey` holds
+`board_flop: &str` taken straight from `&req.board.flop`
+(`postflop-solver-api/src/store/hash.rs:13,49`), sha256'd as-is (`:88-92`); the request
+field is a plain `String` with no normalization (`api/request.rs:48`), and the raw flop is
+persisted verbatim into the `board_flop` column and `request_json` (`store/mod.rs:228`,
+`:194-220`). The **solver** does not canonicalize the input flop either: `isomorphism()`
+collapses only the **turn/river dealt-chance** dimension, gated on `self.turn == NOT_DEALT` /
+`self.river == NOT_DEALT` and keyed off the *fixed* input `flop_rankset`
+(`src/card.rs:280,312,263-270`); `check_card_config` validates flop cards but never reorders
+them to a canonical suit form (`base.rs:573-604`). README confirms only turn/river deals are
+combined (`README.md:73-74`).
+
+**Dedup ceiling: 12.6×, rarely realized.** The pure-board space collapses
+`C(52,3) = 22100` → **1755** suit-isomorphism classes (a standard combinatorial fact,
+verified here by offline enumeration over all 4! suit permutations — this 12.6× is **not** a
+number the codebase computes or stores, and is a different axis from the doc's per-player
+hand ceiling of `1081 = C(47,2)`). That 12.6× is a **ceiling, not the realized win.** The
+crate's own isomorphism test is *range-gated*: two suits are interchangeable only when
+**every** range weight is invariant under the swap — `is_suit_isomorphic` bails on the first
+mismatched pair (`src/range.rs:660-683`), and `isomorphism()` requires it on **both**
+players' ranges (`src/card.rs:251-254`). So deduping two input flops means co-permuting
+`(range_oop, range_ip)` by the same suit map, and a hit only lands when those ranges are
+themselves suit-symmetric under it. Production ranges are usually positionally asymmetric and
+**not** suit-symmetric, so the realized collapse is far below 12.6× — often 1× for a given
+asymmetric pair.
+
+**Where it would live, and the risk.** Canonicalization belongs in `spot_hash` input
+normalization: pick a canonical suit permutation for the flop, apply it to the flop **and**
+to both ranges before hashing. The trap — and this codebase has already been burned by
+exactly this class of "plausible suit-swap" error (the refuted Gate B) — is
+**un-canonicalization**: the identity, the `board_flop` column, `request_json`, and the
+binary **solution blob** all encode the *given* suits (`store/mod.rs:228`; solved on the
+concrete `CardConfig.flop`, `base.rs:570`). A canonical store would have to persist the
+inverse suit-permutation map and apply it on every read to both the **displayed board** and
+**every per-hand strategy/EV index** — a per-hand index permutation, not a cosmetic relabel.
+High correctness surface, modest payoff.
+
+**Recommendation: defer.** Orthogonal to the turn-save / river-re-solve critical path;
+bundling it only adds risk. If pursued, scope it standalone with its own gate: a test
+flipping a **suit only** (`Ac9d2s` vs `Ah9d2s`) to pin current behavior — today's
+`hash_changes_on_board_field` flips a *rank* (`store/hash.rs:165-169`), so suit-only
+sensitivity is currently *inferred* from the absence of any canonicalization path, not
+test-pinned — plus a round-trip test asserting the un-canonicalized per-hand strategy matches
+a direct solve on the user's suits.
+
+---
+
 ## Risks & limits
 
 - **Unmeasured cost (risk #1).** "Sub-second river re-solve" is a hypothesis:
@@ -343,7 +567,13 @@ With cost retired, the critical path is **correctness, not performance**:
 2. ✅ **Gate (B) isomorphism un-swap** — investigated and **refuted**: not needed for
    non-bunching games; `weights()` is structurally board-aligned (Phase 1, done, with a
    regression test).
-3. ⬜ **Coexistence invariant** — re-solve only genuinely non-resident nodes (Phase 3).
+3. ✅ **Coexistence invariant** — defined structurally (Phase 3): a node is non-resident
+   iff entering it would trip the `play()` chance-node guard (`interpreter.rs:287-290`);
+   re-solve only those, never a node the parent can already serve.
 
-Then the adapter wiring (Phase 2) and the mandatory result cache (Phase 5: a ~100 ms
-solve inside the session mutex would block concurrent ops).
+The adapter wiring (Phase 2) and caching policy (Phase 5) are now **mapped** (results
+below): the seam is the pre-`play()` chance hop in `apply_navigation_steps`, served from a
+separate river `PostFlopGame`; the ~100 ms single-thread solve under the per-session mutex
+makes a result cache **mandatory**. Open before prototype: a shared, tested pot/stack
+helper, a Turn-mode save/load round-trip test (none exists today), and wiring
+`node_input_ranges` into the adapter.
