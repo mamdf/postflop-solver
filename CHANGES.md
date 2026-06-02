@@ -1,5 +1,9 @@
 # List of breaking changes
 
+## 2026-06-02
+
+- Saved game compatibility is broken because the serialized format now includes the runtime `TournamentIcmConfig` (so tournament-ICM solutions round-trip correctly through compact saves; the large terminal utilities are re-derived on load). The format version string was bumped, so files written by older versions must be re-solved.
+
 ## 2026-04-29
 
 - `PostFlopGame`: runtime tournament ICM configuration is added through `TournamentIcmConfig` and precomputed terminal payout-delta utilities. This mode is not persisted by custom serialization yet and cannot currently be combined with rake or bubble-factor payoff scaling.

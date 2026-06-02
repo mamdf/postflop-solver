@@ -30,3 +30,7 @@ harness = false
 [[bench]]
 name = "icm_precompute"
 harness = false
+
+[[bench]]
+name = "compact_save"
+harness = false

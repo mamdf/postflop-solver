@@ -316,6 +316,28 @@ impl PostFlopGame {
         Ok(())
     }
 
+    /// Re-derives the tournament ICM terminal utilities from the persisted config after
+    /// deserialization.
+    ///
+    /// The precompute is pure — it depends only on the node arena, the tree config, and the
+    /// ICM config — so it reconstructs the exact utilities that custom serialization drops
+    /// from the file. Unlike [`set_tournament_icm_config`](Self::set_tournament_icm_config),
+    /// it bypasses the `TreeBuilt` state gate because a loaded game is already solved, and it
+    /// is a no-op when no ICM config was persisted.
+    #[cfg(feature = "bincode")]
+    pub(super) fn restore_tournament_icm_from_config(&mut self) -> Result<(), String> {
+        let Some(config) = self.tournament_icm_config.take() else {
+            return Ok(());
+        };
+        let baseline_values = self.tournament_icm_values_for_terminal(&config, [0, 0], None)?;
+        let baseline_oop = baseline_values[config.oop_seat];
+        let baseline_ip = baseline_values[config.ip_seat];
+        self.terminal_icm_utilities =
+            self.precompute_terminal_icm_utilities(&config, baseline_oop, baseline_ip)?;
+        self.tournament_icm_config = Some(config);
+        Ok(())
+    }
+
     /// Returns whether exact tournament ICM terminal utilities are enabled.
     #[inline]
     pub fn uses_tournament_icm(&self) -> bool {
