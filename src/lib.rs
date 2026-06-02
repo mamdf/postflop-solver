@@ -59,6 +59,9 @@ mod alloc;
 #[cfg(feature = "bincode")]
 mod file;
 
+#[cfg(feature = "bincode")]
+mod solution;
+
 mod action_tree;
 mod atomic_float;
 mod bet_size;
@@ -77,6 +80,9 @@ mod utility;
 
 #[cfg(feature = "bincode")]
 pub use file::*;
+
+#[cfg(feature = "bincode")]
+pub use solution::*;
 
 pub use action_tree::*;
 pub use bet_size::*;
