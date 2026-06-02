@@ -52,6 +52,14 @@ If you have cloned this repository, you can run the example with the following c
 $ cargo run --release --example basic
 ```
 
+- Compact solution save
+
+`save_solution`/`load_solution` (with `SaveOptions`/`LoadOptions`) wrap the file
+primitives to save a solved game as a small, fully navigable artifact and reload it
+without re-solving. See [docs/compact-solution.md](docs/compact-solution.md) and the
+[`compact_solution`](examples/compact_solution.rs) example. Benchmarks:
+`cargo bench --bench compact_save --features zstd`.
+
 ## Implementation details
 
 - **Algorithm**: The solver uses the state-of-the-art [Discounted CFR] algorithm.
