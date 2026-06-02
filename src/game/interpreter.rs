@@ -979,6 +979,21 @@ impl PostFlopGame {
         self.total_bet_amount
     }
 
+    /// Returns `(pot, effective_stack)` entering the current node — the seed values
+    /// for a re-rooted subgame's `TreeConfig`.
+    ///
+    /// - `pot = starting_pot + oop_invested + ip_invested`
+    /// - `effective_stack = effective_stack - max(oop_invested, ip_invested)`
+    ///
+    /// This is the derivation previously inlined in `examples/turn_resolve.rs`; the
+    /// pot is the pot BEFORE betting at the current node begins.
+    pub fn node_pot_stack(&self) -> (i32, i32) {
+        let [oop, ip] = self.total_bet_amount();
+        let pot = self.tree_config.starting_pot + oop + ip;
+        let stack = self.tree_config.effective_stack - oop.max(ip);
+        (pot, stack)
+    }
+
     /// Locks the strategy of the current node.
     ///
     /// The `strategy` argument must be a slice of the length of `#(actions) * #(private hands)`.

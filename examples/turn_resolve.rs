@@ -93,11 +93,9 @@ fn main() {
     );
 
     // The turn pot/stack are NOT the flop's: they depend on the line played.
-    // `total_bet_amount()` accumulates each player's investment from the root
-    // (it is only reset by `back_to_root`), so we can derive them directly.
-    let [oop_invested, ip_invested] = flop_game.total_bet_amount();
-    let turn_pot = flop_game.tree_config().starting_pot + oop_invested + ip_invested;
-    let turn_stack = flop_game.tree_config().effective_stack - oop_invested.max(ip_invested);
+    // `node_pot_stack()` accumulates total investment via `total_bet_amount()` and
+    // derives both values from the root `TreeConfig` in one call.
+    let (turn_pot, turn_stack) = flop_game.node_pot_stack();
     println!("Turn subgame -> pot: {turn_pot}, effective stack: {turn_stack}");
 
     // ---- 4. Fresh, finer-grained turn solve --------------------------------

@@ -92,9 +92,7 @@ fn main() {
     // secondary turn-from-flop measurement at the end).
     let oop_turn_range = extract_range(&flop_game, 0);
     let ip_turn_range = extract_range(&flop_game, 1);
-    let [oop_inv_t, ip_inv_t] = flop_game.total_bet_amount();
-    let turn_pot = flop_game.tree_config().starting_pot + oop_inv_t + ip_inv_t;
-    let turn_stack = flop_game.tree_config().effective_stack - oop_inv_t.max(ip_inv_t);
+    let (turn_pot, turn_stack) = flop_game.node_pot_stack();
 
     // ---- 3. Walk turn -> river ---------------------------------------------
     play_action(&mut flop_game, |a| matches!(a, Action::Check)); // OOP check
@@ -107,9 +105,7 @@ fn main() {
         .expect("a possible river card");
     flop_game.play(river_card as usize);
 
-    let [oop_inv_r, ip_inv_r] = flop_game.total_bet_amount();
-    let river_pot = flop_game.tree_config().starting_pot + oop_inv_r + ip_inv_r;
-    let river_stack = flop_game.tree_config().effective_stack - oop_inv_r.max(ip_inv_r);
+    let (river_pot, river_stack) = flop_game.node_pot_stack();
     println!(
         "river reached -> turn card #{turn_card}, river card #{river_card} | \
          OOP combos {:.1}, IP combos {:.1} | pot {river_pot}, stack {river_stack}, SPR {:.2}",
