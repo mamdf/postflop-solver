@@ -1612,3 +1612,111 @@ fn solve_pio_preset_raked() {
     assert!((root_ev_oop - 95.57).abs() < 0.2);
     assert!((root_ev_ip - 66.98).abs() < 0.2);
 }
+
+/// Regression for reach extraction (`node_input_ranges`) across an ISOMORPHIC
+/// chance hop.
+///
+/// `examples/turn_resolve.rs` only ever extracts ranges through a concrete,
+/// non-isomorphic card, so the isomorphic path was untested. This proves that
+/// `weights()` stays index-aligned with `private_cards()` even after the line
+/// crosses an isomorphic chance node — a hand is zero in `weights()` exactly when
+/// it conflicts with the actual board — so NO suit un-swap is needed when
+/// reconstructing input ranges. (`assign_zero_weights` is what keeps the alignment;
+/// the internal `apply_swap` only reorients node storage / the bunching arena.)
+#[test]
+fn node_input_ranges_across_isomorphic_chance() {
+    // Two-tone flop (clubs & spades absent) and a monotone flop (three suits absent)
+    // both force suit isomorphisms on the turn.
+    assert_reach_survives_isomorphism("Td9d6h");
+    assert_reach_survives_isomorphism("Td7d2d");
+}
+
+/// Solves a suit-symmetric (100%) game, navigates flop check/check -> an ISOMORPHIC
+/// turn -> river, and asserts `weights()` stays index-aligned with `private_cards()`
+/// against the actual board (a hand is zero iff board-blocked). The isomorphism relates
+/// a board-blocked hand (holding the swapped turn suit) to a NON-blocked hand of a
+/// different value, so a suit-swapped `weights` would fail the zero check.
+///
+/// A suit-asymmetric range can't be used to make a magnitude permutation visible: it
+/// would suppress the isomorphism entirely, because suits are only interchangeable when
+/// swap-partner hands carry identical weight. That is exactly why a stray swap among
+/// non-board hands would be vacuous (same value either way) — the board-block zero
+/// pattern is the meaningful evidence. Confirms no un-swap is needed in
+/// `node_input_ranges`.
+fn assert_reach_survives_isomorphism(flop: &str) {
+    let flop_cards = flop_from_str(flop).unwrap();
+    let flop_mask: u64 = flop_cards.iter().fold(0, |m, &c| m | (1u64 << c));
+
+    let card_config = CardConfig {
+        range: [Range::ones(); 2],
+        flop: flop_cards,
+        ..Default::default()
+    };
+    let tree_config = TreeConfig {
+        starting_pot: 60,
+        effective_stack: 200,
+        ..Default::default() // no bet sizes -> check/check lines; weights are never multiplied
+    };
+    let action_tree = ActionTree::new(tree_config).unwrap();
+    let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+    game.allocate_memory(false);
+    finalize(&mut game); // sets `Solved`; node_input_ranges requires it
+
+    // Find any non-flop turn card that fires an isomorphism (independent of which suit
+    // the solver canonicalizes to).
+    let nav_turn = |game: &mut PostFlopGame, turn: u8| -> bool {
+        if flop_mask & (1u64 << turn) != 0 {
+            return false; // on the flop, not dealable
+        }
+        game.back_to_root();
+        game.play(0); // OOP check
+        game.play(0); // IP check
+        assert!(game.is_chance_node());
+        game.play(turn as usize); // any non-flop card is a valid (canonical or iso) chance
+        game.turn_swap.is_some()
+    };
+    let turn_card = (0..52u8)
+        .find(|&c| nav_turn(&mut game, c))
+        .expect("some turn card must fire an isomorphism");
+    assert!(game.turn_swap.is_some());
+
+    // Continue to a river node: this exercises the reordered orientation `weights` must
+    // survive after the isomorphic turn.
+    game.play(0); // OOP check (turn)
+    game.play(0); // IP check (turn)
+    assert!(game.is_chance_node());
+    let river_card = (0..52u8)
+        .find(|&c| game.possible_cards() & (1u64 << c) != 0)
+        .expect("a river card must be available");
+    game.play(river_card as usize);
+
+    let board: u64 = (1u64 << turn_card) | (1u64 << river_card);
+
+    // Core assertion: a hand is zero in `weights()` iff it conflicts with the ACTUAL
+    // board. This detects the swaps that matter: the isomorphism relates a board-blocked
+    // hand (holding the swapped turn suit) to a NON-blocked hand, so a misaligned
+    // (suit-swapped) `weights` would leave a nonzero weight on a blocked hand and fail.
+    let mut any_nonzero = false;
+    for player in 0..2 {
+        let cards = game.private_cards(player);
+        let w = game.weights(player);
+        assert_eq!(cards.len(), w.len());
+        for (&(c1, c2), &wi) in cards.iter().zip(w.iter()) {
+            let blocked = board & ((1u64 << c1) | (1u64 << c2)) != 0;
+            if blocked {
+                assert_eq!(wi, 0.0, "board-blocked hand must have zero reach");
+            } else {
+                any_nonzero |= wi > 0.0;
+            }
+        }
+    }
+    assert!(any_nonzero, "the river node must be reachable by some hands");
+
+    // The turnkey extractor must succeed and return non-empty ranges.
+    let [oop, ip] = game.node_input_ranges();
+    let combos = |r: &Range| -> f32 { r.raw_data().iter().sum() };
+    assert!(
+        combos(&oop) > 0.0 && combos(&ip) > 0.0,
+        "extracted ranges must be non-empty",
+    );
+}

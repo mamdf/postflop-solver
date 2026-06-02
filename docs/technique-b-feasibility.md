@@ -72,8 +72,8 @@ flop-to-river = ~48 × ~44 boards, huge.
 | Capability | Exists today | Gap |
 |---|---|---|
 | Root a game at turn/river | ✅ `PostFlopGame::with_config` (`src/game/base.rs:147`); `check_card_config` derives `BoardState` (`base.rs:621-632`); tests `one_raise_all_range_with_turn/river` | constructor takes ranges *as given*; does not propagate parent reach |
-| Extract per-hand reach | ✅ `weights(player)` (`src/game/interpreter.rs:560`); `play()` multiplies reach by the strategy row (`interpreter.rs:382-387`) | only lives as `extract_range()` in `examples/turn_resolve.rs`, not a shared helper |
-| Rebuild input `Range` | ✅ `private_cards()` (`base.rs:444`) + `Range::from_hands_weights` (`src/range.rs:451`); `init_hands` re-derives weights with the board dead-mask (`base.rs:691-695`) | no turnkey helper returning `(range_oop, range_ip)` for a node |
+| Extract per-hand reach | ✅ `weights(player)` (`src/game/interpreter.rs:560`); `play()` multiplies reach by the strategy row (`interpreter.rs:382-387`) | ✅ closed (Phase 1): `PostFlopGame::node_input_ranges` wraps it with a solved-gate + bunching guard |
+| Rebuild input `Range` | ✅ `private_cards()` (`base.rs:444`) + `Range::from_hands_weights` (`src/range.rs:451`); `init_hands` re-derives weights with the board dead-mask (`base.rs:691-695`) | ✅ closed (Phase 1): `node_input_ranges` returns `[oop, ip]`, tested across an isomorphic chance hop |
 | Derive subgame pot/stack | ✅ inputs via `total_bet_amount()` (`interpreter.rs:940`); derivation in `turn_resolve.rs:98-100` | no shared, tested helper — an off-by-one silently corrupts the subgame |
 | Value recompute at load | ✅ `finalize()` (`serialization.rs:257-261`); sizing via `estimate_river_save_size` (`src/solution.rs:232`) | N/A — value recompute, not a re-solve |
 | Adapter read-only navigation | ✅ `apply_navigation_steps` (`postflop-solver-api/.../spot_navigation.rs`) | **assumes every node is resident**; no branch detecting a non-resident river subtree and triggering an on-demand re-solve |
@@ -122,16 +122,22 @@ Pot/stack: `pot = starting_pot + oop_invested + ip_invested`;
    never panics.** → Hard gate: assert `Solved` state post-load and compare a known
    node's `strategy()` against the same node in the in-memory parent.
 
-2. **Isomorphism un-swap.** `weights()` returns the **raw** slice with no un-swap,
-   while `private_cards()` is canonical. `turn_swap`/`river_swap` are set whenever any
-   chance hop on the line resolved isomorphically (`interpreter.rs:325-347`). For a
-   river reached from a turn save you cross at least the river chance hop, so a raw
-   `weights()` may be in swapped-suit orientation while `private_cards()` is canonical,
-   and the hand→weight zip is **silently mismatched**. `turn_resolve.rs` dodges this
-   with a concrete non-isomorphic card (Qc) and is **not safe to lift verbatim** for
-   arbitrary river targets. → Copy the weights slice, call `apply_swap(reverse=true)`
-   (inverse of `interpreter.rs:1146-1167`), *then* zip. Or restrict the extractor to
-   canonical/concrete boards and reject isomorphic targets explicitly.
+2. **Isomorphism un-swap — investigated and REFUTED for the standard (non-bunching)
+   path (Phase 1).** The earlier hypothesis was that `weights()` is in a raw
+   swapped-suit orientation and must be `apply_swap(reverse=true)`-ed before zipping
+   with `private_cards()`. Verified against the code, it is **not**:
+   `assign_zero_weights` runs on every chance hop and zeroes `self.weights[player]` by
+   the *actual* board on the *same* `private_cards` indexing
+   (`interpreter.rs:1123-1131`), so `weights()` is always index-aligned with
+   `private_cards()`. `play()` only multiplies `weights` by `strategy()`, whose output
+   is forward-swapped to match that orientation (`interpreter.rs:931-933` and `:386`);
+   the `apply_swap(reverse=true)` dance touches only node strategy storage and
+   temporary bunching buffers, never leaving `self.weights` persistently swapped
+   (`interpreter.rs:512-519`, `:1146-1168`). Proven by the regression test
+   `node_input_ranges_across_isomorphic_chance` (fires a real turn-suit isomorphism and
+   asserts `weights` stays board-aligned). **The real caveat is bunching**, which uses a
+   different removal layout (`bunching_arena`); `node_input_ranges` panics under
+   bunching rather than guess.
 
 3. **Coexistence contradiction.** A River-mode artifact (the default) runs
    `finalize()` at load and leaves the river fully navigable with its own retained
@@ -209,20 +215,15 @@ super-linearly. But "river re-solve = sub-second" is a **hypothesis**:
 
 ## Exploration plan (no code)
 
-**Phase 1 — Found the reach reconstruction; two hard gates.**
-Read `examples/turn_resolve.rs` in full. Files: `src/game/interpreter.rs` (`play`,
-`weights`, `normalized_weights`, `total_bet_amount`, `apply_swap`), `src/range.rs`
-(`from_hands_weights`), `src/game/base.rs` (`init_hands`, `check_card_config`).
-- **Gate (A) finalized strategy:** before trusting `weights()` as equilibrium reach,
-  assert `Solved` state for the seeding mode; for a turn-mode seed, verify the retained
-  turn strategy is the finalized average, not raw regrets. Test: load the mode, compare
-  a known node's `strategy()` against the in-memory parent. This is the dominant silent
-  failure mode.
-- **Gate (B) un-swap:** the reusable extractor must not zip `weights(p)` with
-  `private_cards(p)` directly for a general board — copy the weights, `apply_swap(reverse=true)`,
-  then zip; or restrict to canonical boards. Add the regression `turn_resolve.rs`
-  never exercises: navigate to an **isomorphic** river child and assert the rebuilt
-  range reproduces the parent's reach there.
+**Phase 1 — Found the reach reconstruction; two hard gates. ✅ DONE** (see
+"Phase 1 results" above).
+- **Gate (A) solved-state:** enforced — `node_input_ranges` panics unless `Solved`.
+  (`node.strategy()` holds the cumulative strategy sum and `strategy()` normalizes it to
+  the average on the fly; `finalize` — `utility.rs:245` — only computes CFVs and flips
+  the state, so requiring `Solved` is the right, cheap guard.)
+- **Gate (B) un-swap:** investigated and **refuted** for non-bunching games; covered by
+  the `node_input_ranges_across_isomorphic_chance` regression test. Bunching is guarded
+  out.
 
 **Phase 2 — Map the adapter injection seam.**
 Read `spot_navigation.rs`, `spot_solution.rs`, `engines/export.rs` in
@@ -285,8 +286,28 @@ The turn re-solve (moderate tree, *parallel*) already costs 83 ms — confirming
 is the wrong target.
 
 Caveats on the number: measured on one WSL2 host (10× headroom absorbs hardware
-variance); these are *timing* runs and do not exercise the isomorphism un-swap or the
-finalized-strategy gate — those remain Phase-1 correctness work, not cost.
+variance); these are *timing* runs. The correctness concerns (reach alignment under
+isomorphism, the solved-state gate) are addressed separately in Phase 1, below.
+
+## Phase 1 results (implemented)
+
+Reach reconstruction is now a tested, first-class crate API rather than an
+example-only helper.
+
+- **`PostFlopGame::node_input_ranges(&self) -> [Range; 2]`** (`src/game/interpreter.rs`):
+  returns the two players' input ranges entering the current node, ready to seed a
+  re-rooted subgame. **Gate (A)** is enforced — it panics unless the game is `Solved`
+  (the reach is only the equilibrium reach once the averaged strategy is in place) —
+  and it panics under bunching rather than mis-handle the `bunching_arena` layout.
+- **Gate (B) was REFUTED, not implemented.** The hypothesized isomorphism un-swap is
+  unnecessary for non-bunching games: `weights()` is structurally kept index-aligned
+  with `private_cards()` by `assign_zero_weights` on every chance hop (see footgun #2).
+- **Regression test** `node_input_ranges_across_isomorphic_chance` (`src/game/tests.rs`):
+  navigates flop check/check → an isomorphic turn (fires `turn_swap`) → river, and
+  asserts a hand is zero in `weights()` **iff** it conflicts with the actual board —
+  the property that would break if an un-swap were needed. The pre-existing
+  `examples/turn_resolve.rs` only used a concrete non-isomorphic card, so this path was
+  previously untested. Full suite: **49 passing**.
 
 ---
 
@@ -316,13 +337,13 @@ river re-solves single-thread in ~100 ms, ~10× under budget, and is determinist
 mechanics are sound and tested (`turn_resolve.rs`). Target **turn-mode save +
 river-only on-demand re-solve** (not flop-only), re-solving only non-resident nodes.
 
-With cost retired, the critical path is now **correctness, not performance**:
-1. **Gate (A) finalized strategy** — the silent failure mode that corrupts every reach
-   vector without panicking if the seed strategy is raw regrets. Validate first.
-2. **Gate (B) isomorphism un-swap** — `weights()` is raw; the reusable extractor must
-   `apply_swap(reverse=true)` before zipping with `private_cards()`. Add the isomorphic
-   river regression `turn_resolve.rs` never exercises.
-3. **Coexistence invariant** — re-solve only genuinely non-resident nodes.
+With cost retired, the critical path is **correctness, not performance**:
+1. ✅ **Gate (A) solved-state** — `node_input_ranges` panics unless the game is solved
+   (Phase 1, done).
+2. ✅ **Gate (B) isomorphism un-swap** — investigated and **refuted**: not needed for
+   non-bunching games; `weights()` is structurally board-aligned (Phase 1, done, with a
+   regression test).
+3. ⬜ **Coexistence invariant** — re-solve only genuinely non-resident nodes (Phase 3).
 
 Then the adapter wiring (Phase 2) and the mandatory result cache (Phase 5: a ~100 ms
 solve inside the session mutex would block concurrent ops).

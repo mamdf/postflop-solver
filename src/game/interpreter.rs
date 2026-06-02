@@ -1,5 +1,6 @@
 use super::*;
 use crate::interface::*;
+use crate::range::Range;
 use crate::sliceop::*;
 use crate::utility::*;
 
@@ -563,6 +564,43 @@ impl PostFlopGame {
         }
 
         &self.weights[player]
+    }
+
+    /// Returns both players' input ranges entering the current node, ready to seed
+    /// a re-rooted subgame (the pattern used by `examples/turn_resolve.rs` and
+    /// `examples/river_resolve_bench.rs`): `[oop_range, ip_range]`.
+    ///
+    /// The per-hand reach in [`weights`] is already index-aligned with
+    /// [`private_cards`] against the *actual* board — [`assign_zero_weights`] zeroes
+    /// hands by the real board on that same `private_cards` indexing — so an
+    /// isomorphic chance hop needs **no** suit un-swap here. (The internal
+    /// `apply_swap` only reorients node strategy storage and the bunching arena;
+    /// `self.weights` itself is never left in a swapped orientation.)
+    ///
+    /// # Panics
+    /// - if the game is not solved: the reach is only the equilibrium reach once the
+    ///   averaged strategy is in place, so callers must [`solve`] (or load a solved
+    ///   tree) and navigate to the target node before extracting.
+    /// - if bunching is enabled: the bunching weight layout is out of scope here.
+    ///
+    /// [`weights`]: #method.weights
+    /// [`private_cards`]: #method.private_cards
+    /// [`assign_zero_weights`]: #method.assign_zero_weights
+    /// [`solve`]: crate::solve
+    pub fn node_input_ranges(&self) -> [Range; 2] {
+        if self.state != State::Solved {
+            panic!("Game must be solved before extracting node input ranges");
+        }
+        if self.bunching_num_dead_cards != 0 {
+            panic!("node_input_ranges does not support bunching games");
+        }
+        [self.node_input_range(0), self.node_input_range(1)]
+    }
+
+    /// Builds one player's input `Range` from the current node's reach weights.
+    fn node_input_range(&self, player: usize) -> Range {
+        Range::from_hands_weights(self.private_cards(player), self.weights(player))
+            .expect("equilibrium reach weights form a valid range")
     }
 
     /// Returns the normalized weights of each private hand of the given player.
