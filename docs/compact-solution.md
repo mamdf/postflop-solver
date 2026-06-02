@@ -85,6 +85,34 @@ and tournament-ICM alike); u16 adds a small EV error (equity is unaffected). Rea
 Turn/Flop only to archive a street you will not revisit. The "lossless" numbers below are
 chipEV.
 
+## Predicting save size without solving
+
+To size a spot before saving — or to extrapolate to bigger trees — estimate the River-mode
+on-disk size from the storage counts. No solve or save is needed (the counts are known after
+`allocate_memory`):
+
+```rust
+use postflop_solver::*;
+
+let counts = game.storage_counts();
+let compression = game.is_memory_allocated().unwrap(); // false = f32, true = u16
+let est = estimate_river_save_size(counts, compression, DEFAULT_ZSTD_RATIO);
+println!(
+    "~{} MB uncompressed, ~{} MB zstd",
+    est.uncompressed_bytes / 1_000_000,
+    est.compressed_bytes / 1_000_000,
+);
+```
+
+- The strategy buffer is exactly `bytes_per_element × num_storage`; the node-arena/metadata
+  overhead is a precision-independent `≈ 0.68 × num_storage`. The **uncompressed** estimate
+  lands within ~2% of the real file (validated in `benches/compact_save.rs`).
+- The **compressed** estimate divides by an assumed zstd ratio. Real ratios vary ~4–6× with
+  the data, so treat it as a rough guide (±~30%).
+- `num_storage` scales with action-tree complexity (bet/raise sizes × stack depth). To
+  extrapolate to a more complex spot, scale `num_storage`: a tree with 3× the storage
+  elements produces a ~3× larger file.
+
 ## Gotcha: precision is chosen at allocation, not at save
 
 ```rust

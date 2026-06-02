@@ -31,7 +31,7 @@
 //! [`set_target_storage_mode`]: PostFlopGame::set_target_storage_mode
 //! [`PostFlopGame::allocate_memory`]: PostFlopGame::allocate_memory
 
-use crate::{load_data_from_file, save_data_to_file, BoardState, PostFlopGame};
+use crate::{load_data_from_file, save_data_to_file, BoardState, PostFlopGame, StorageCounts};
 use std::path::Path;
 
 /// Options controlling how a solved [`PostFlopGame`] is serialized.
@@ -178,6 +178,78 @@ pub fn load_solution<P: AsRef<Path>>(
     load_data_from_file::<PostFlopGame, _>(path, options.max_memory_usage)
 }
 
+/// Node-arena + metadata overhead of a River-mode save, in bytes per strategy storage
+/// element.
+///
+/// The serialized node arena, action tree, and headers add a term that is independent of the
+/// value precision (it depends on the tree shape, not on f32-vs-u16). Across measured spots
+/// it is ≈ 0.68 bytes per `num_storage` element (derived by subtracting the f32 and u16
+/// uncompressed sizes; see `benches/compact_save.rs`). With this additive term the
+/// uncompressed estimate lands within ~2% of the real file size.
+pub const ARENA_BYTES_PER_STORAGE_ELEMENT: f64 = 0.68;
+
+/// Typical zstd compression ratio (uncompressed / compressed) for a River-mode save at a high
+/// level. Real ratios vary with the data (~4–6x observed), so the compressed estimate is only
+/// a rough guide. Used as the default for size estimation; pass `1.0` for no compression.
+pub const DEFAULT_ZSTD_RATIO: f64 = 4.5;
+
+/// Predicted on-disk size of a compact save, in bytes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CompactSizeEstimate {
+    /// Serialized strategy-buffer bytes — exact: `bytes_per_element * num_storage`.
+    pub storage_bytes: u64,
+    /// Estimated uncompressed total (strategy buffer + node-arena/metadata). Accurate to ~2%.
+    pub uncompressed_bytes: u64,
+    /// Estimated size after zstd at the assumed ratio. Approximate (zstd varies with the data).
+    pub compressed_bytes: u64,
+}
+
+/// Bytes per stored value element for a given allocation precision: 4 for an f32-allocated
+/// game (`allocate_memory(false)`), 2 for a u16-quantized one (`allocate_memory(true)`).
+#[inline]
+pub fn bytes_per_element(compression_enabled: bool) -> u64 {
+    if compression_enabled {
+        2
+    } else {
+        4
+    }
+}
+
+/// Estimates the on-disk size of a **River-mode** compact save from storage counts, without
+/// solving or saving.
+///
+/// River persists only the strategy buffer, so its serialized size is exactly
+/// `bytes_per_element(compression_enabled) * counts.num_storage`. The node arena and metadata
+/// add a precision-independent term modeled as [`ARENA_BYTES_PER_STORAGE_ELEMENT`] per storage
+/// element, giving an uncompressed estimate within ~2% of reality. `zstd_ratio` is the assumed
+/// compression factor (see [`DEFAULT_ZSTD_RATIO`]; pass `1.0` for an uncompressed estimate) and
+/// is only a rough guide.
+///
+/// `num_storage` scales linearly with action-tree complexity (bet/raise sizes × stack depth),
+/// so this extrapolates to larger spots: scale `num_storage` and the estimate scales with it.
+/// Get the counts from [`PostFlopGame::storage_counts`] (after `allocate_memory`, no solve
+/// needed) and the precision from [`PostFlopGame::is_memory_allocated`].
+pub fn estimate_river_save_size(
+    counts: StorageCounts,
+    compression_enabled: bool,
+    zstd_ratio: f64,
+) -> CompactSizeEstimate {
+    let num_storage = counts.num_storage;
+    let storage_bytes = bytes_per_element(compression_enabled) * num_storage;
+    let arena_bytes = (ARENA_BYTES_PER_STORAGE_ELEMENT * num_storage as f64).round() as u64;
+    let uncompressed_bytes = storage_bytes + arena_bytes;
+    let compressed_bytes = if zstd_ratio > 0.0 {
+        (uncompressed_bytes as f64 / zstd_ratio).round() as u64
+    } else {
+        uncompressed_bytes
+    };
+    CompactSizeEstimate {
+        storage_bytes,
+        uncompressed_bytes,
+        compressed_bytes,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,6 +333,39 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
 
         assert_balanced_root(&mut loaded);
+    }
+
+    #[test]
+    fn estimate_river_save_size_matches_actual() {
+        let mut game = solved_ones_flop_game();
+        let counts = game.storage_counts();
+        let compression = game.is_memory_allocated().unwrap();
+
+        // The strategy-buffer term is exact by construction.
+        let estimate = estimate_river_save_size(counts, compression, 1.0);
+        assert_eq!(
+            estimate.storage_bytes,
+            bytes_per_element(compression) * counts.num_storage
+        );
+        assert_eq!(estimate.compressed_bytes, estimate.uncompressed_bytes); // ratio 1.0
+
+        // The uncompressed estimate tracks a real uncompressed River save.
+        let path = std::env::temp_dir().join(format!(
+            "pfs_compact_estimate_{}.bin",
+            std::process::id()
+        ));
+        save_solution(&mut game, &path, &SaveOptions::navigable()).unwrap();
+        let actual = std::fs::metadata(&path).unwrap().len();
+        std::fs::remove_file(&path).unwrap();
+
+        let error = (estimate.uncompressed_bytes as f64 - actual as f64) / actual as f64;
+        assert!(
+            error.abs() < 0.2,
+            "uncompressed estimate {} vs actual {} ({:+.1}%)",
+            estimate.uncompressed_bytes,
+            actual,
+            error * 100.0
+        );
     }
 
     #[test]

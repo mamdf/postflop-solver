@@ -97,7 +97,24 @@ fn run_spot(name: &str, spec: &CanonicalWebCaseSpec) {
                 (None, None)
             };
 
-            print_row(alloc, mode_label, level, bytes, save_ms, load_ms, ram_mb, precision);
+            // Predict the on-disk size from storage counts (River only — the predictor
+            // models the strategy-only River buffer) and report the error vs. the measured
+            // size, validating the estimator.
+            let predicted = if mode == BoardState::River {
+                let est =
+                    estimate_river_save_size(game.storage_counts(), compression, DEFAULT_ZSTD_RATIO);
+                Some(if level.is_some() {
+                    est.compressed_bytes
+                } else {
+                    est.uncompressed_bytes
+                })
+            } else {
+                None
+            };
+
+            print_row(
+                alloc, mode_label, level, bytes, predicted, save_ms, load_ms, ram_mb, precision,
+            );
         }
     }
     println!();
@@ -185,8 +202,9 @@ fn root_max_diff(reference: &CurrentNodeSnapshot, other: &CurrentNodeSnapshot) -
 
 fn print_header() {
     println!(
-        "  {:<6} {:<6} {:<6} {:>10} {:>9} {:>9} {:>9} {:>11} {:>11}",
-        "alloc", "mode", "zstd", "bytes", "save ms", "load ms", "ram MB", "eq maxdiff", "ev maxdiff"
+        "  {:<6} {:<6} {:<6} {:>10} {:>10} {:>6} {:>9} {:>9} {:>9} {:>11} {:>11}",
+        "alloc", "mode", "zstd", "bytes", "pred", "err%", "save ms", "load ms", "ram MB",
+        "eq maxdiff", "ev maxdiff"
     );
 }
 
@@ -196,12 +214,20 @@ fn print_row(
     mode: &str,
     level: Option<i32>,
     bytes: u64,
+    predicted: Option<u64>,
     save_ms: f64,
     load_ms: f64,
     ram_mb: Option<f64>,
     precision: Option<(f32, f32)>,
 ) {
     let zstd = level.map(|l| format!("L{l}")).unwrap_or_else(|| "no".to_string());
+    let (pred, err) = match predicted {
+        Some(pred) => (
+            pred.to_string(),
+            format!("{:+.1}", (pred as f64 - bytes as f64) / bytes as f64 * 100.0),
+        ),
+        None => ("-".to_string(), "-".to_string()),
+    };
     let ram = ram_mb
         .map(|ram| format!("{ram:.2}"))
         .unwrap_or_else(|| "-".to_string());
@@ -210,7 +236,7 @@ fn print_row(
         None => ("-".to_string(), "-".to_string()),
     };
     println!(
-        "  {:<6} {:<6} {:<6} {:>10} {:>9.2} {:>9.2} {:>9} {:>11} {:>11}",
-        alloc, mode, zstd, bytes, save_ms, load_ms, ram, eq, ev
+        "  {:<6} {:<6} {:<6} {:>10} {:>10} {:>6} {:>9.2} {:>9.2} {:>9} {:>11} {:>11}",
+        alloc, mode, zstd, bytes, pred, err, save_ms, load_ms, ram, eq, ev
     );
 }
