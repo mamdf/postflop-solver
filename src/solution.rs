@@ -396,4 +396,127 @@ mod tests {
             "unexpected error: {err}"
         );
     }
+
+    // ---- Technique B slice-1 tests ------------------------------------------
+
+    /// `node_pot_stack` must return the correct (pot, stack) after a known bet/call line.
+    ///
+    /// Line: OOP bet (50%) → IP call on a 60-pot/970-stack game.
+    /// `solved_ones_flop_game` gives only OOP a 50% bet size, so the tree at the root
+    /// is [Check (0), Bet(30) (1)]; after OOP bets, IP's options are [Fold (0), Call (1)].
+    /// After IP calls:
+    ///   oop_invested = 30, ip_invested = 30
+    ///   expected_pot   = 60 + 30 + 30 = 120
+    ///   expected_stack = 970 - max(30, 30) = 940
+    #[test]
+    fn node_pot_stack_after_bet_call() {
+        let mut game = solved_ones_flop_game();
+
+        // Navigate: OOP bet (50%), IP call.
+        game.play(1); // OOP bets 50% of pot (30 chips)
+        game.play(1); // IP calls
+
+        let (pot, stack) = game.node_pot_stack();
+
+        // Hand-verified: 50% of 60 = 30; both players put in 30.
+        assert_eq!(pot, 120, "pot mismatch after bet/call line");
+        assert_eq!(stack, 940, "stack mismatch after bet/call line");
+    }
+
+    /// A Turn-mode save round-trips as `Solved` and `node_input_ranges` works on it.
+    ///
+    /// Verifies the serialization fact: `state` is stored verbatim, `finalize()` is
+    /// River-only, so a loaded Turn artifact stays `Solved` and keeps its strategy +
+    /// cfvalues — `node_input_ranges` requires `state == Solved` and must not panic.
+    #[test]
+    fn turn_mode_roundtrip_keeps_solved_and_node_input_ranges_works() {
+        let mut game = solved_ones_flop_game();
+
+        let path = std::env::temp_dir().join(format!(
+            "pfs_tb_slice1_turn_rt_{}.bin",
+            std::process::id()
+        ));
+
+        // Save as Turn mode (drops river nodes) and load back.
+        save_solution(
+            &mut game,
+            &path,
+            &SaveOptions::navigable().with_storage_mode(BoardState::Turn),
+        )
+        .unwrap();
+        let (mut loaded, _memo) = load_solution(&path, &LoadOptions::default()).unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        // The loaded game must be at Turn storage depth.
+        assert_eq!(loaded.storage_mode(), BoardState::Turn);
+
+        // Navigate to a turn node: OOP check → IP check → deal a turn card.
+        loaded.play(0); // OOP checks (flop)
+        loaded.play(0); // IP checks (flop)
+        assert!(loaded.is_chance_node(), "expected a turn chance node");
+
+        // Deal any possible turn card.
+        let possible = loaded.possible_cards();
+        let turn_card = (0..52u8)
+            .find(|&c| possible & (1u64 << c) != 0)
+            .expect("at least one turn card must be possible");
+        loaded.play(turn_card as usize);
+
+        // node_input_ranges requires state == Solved; it must succeed and return
+        // non-empty ranges (the all-ones game has combos on every reachable node).
+        let [oop, ip] = loaded.node_input_ranges();
+        let combos = |r: &Range| r.raw_data().iter().sum::<f32>();
+        assert!(
+            combos(&oop) > 0.0 && combos(&ip) > 0.0,
+            "node_input_ranges must return non-empty ranges on a turn-mode artifact"
+        );
+    }
+
+    /// A Turn-mode artifact panics with the chance-guard message when navigated past
+    /// the stored depth to a river chance node.
+    ///
+    /// The solver physically drops river nodes at save time; the chance-node guard in
+    /// `play()` detects the missing storage and panics with "Storage mode is not
+    /// compatible". This test pins that contract so accidental silent no-ops are caught.
+    #[test]
+    #[should_panic(expected = "Storage mode is not compatible")]
+    fn turn_mode_artifact_panics_on_river_navigation() {
+        let mut game = solved_ones_flop_game();
+
+        let path = std::env::temp_dir().join(format!(
+            "pfs_tb_slice1_river_panic_{}.bin",
+            std::process::id()
+        ));
+
+        save_solution(
+            &mut game,
+            &path,
+            &SaveOptions::navigable().with_storage_mode(BoardState::Turn),
+        )
+        .unwrap();
+        let (mut loaded, _memo) = load_solution(&path, &LoadOptions::default()).unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        // Navigate flop → deal turn (chance node).
+        loaded.play(0); // OOP checks (flop)
+        loaded.play(0); // IP checks (flop)
+        assert!(loaded.is_chance_node());
+        let turn_possible = loaded.possible_cards();
+        let turn_card = (0..52u8)
+            .find(|&c| turn_possible & (1u64 << c) != 0)
+            .expect("a turn card must be possible");
+        loaded.play(turn_card as usize);
+
+        // Navigate turn actions.
+        loaded.play(0); // OOP checks (turn)
+        loaded.play(0); // IP checks (turn)
+
+        // Now at a river chance node — river nodes were dropped, so this must panic.
+        assert!(loaded.is_chance_node());
+        let river_possible = loaded.possible_cards();
+        let river_card = (0..52u8)
+            .find(|&c| river_possible & (1u64 << c) != 0)
+            .expect("a river card must be possible");
+        loaded.play(river_card as usize); // <-- panics: "Storage mode is not compatible"
+    }
 }
