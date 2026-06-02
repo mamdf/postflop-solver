@@ -47,16 +47,14 @@ Notes:
   in `play` and panics (`"Storage mode is not compatible"`). Use them only when you will
   never need deeper streets.
 
-> [!WARNING]
-> **River mode is not safe for tournament-ICM solves.** A game solved with
-> `set_tournament_icm_config(...)` stores its precomputed terminal ICM utilities in memory,
-> and those are **not** persisted (only `tree_config`, which includes `bubble_factor`, is).
-> River mode recomputes counterfactual values on load, and that recompute silently falls
-> back to chip / bubble-factor EV (`evaluate_internal`), producing **incorrect** values for
-> an ICM solve. For tournament-ICM solutions use Turn/Flop mode, which loads the as-solved
-> (ICM-correct) values without recomputing — at the cost of dropping the deeper streets.
-> chipEV and `bubble_factor` solves are unaffected (`bubble_factor` is persisted and used in
-> the recompute).
+> [!NOTE]
+> **Tournament-ICM solves are supported in every mode.** A game solved with
+> `set_tournament_icm_config(...)` keeps its precomputed terminal ICM utilities in memory.
+> Those large utilities are not written to disk, but the small `TournamentIcmConfig` is — so
+> on load they are re-derived from the config + node arena (the precompute is pure and
+> deterministic) before River's recompute runs. River, Turn, and Flop all reload ICM-correct
+> values. (This requires the current file-format version; files written before it must be
+> re-solved.)
 
 ## Choosing compression and precision
 
@@ -82,10 +80,10 @@ Representative numbers (small spot, flop `Ac9d2s`, 24bb; from `benches/compact_s
 | f32 | Turn, L12 | 0.35 MB | n/a (no river) |
 
 Guidance: **solve in 32-bit float for accuracy, save River + zstd for the smallest fully
-navigable artifact.** For chipEV and `bubble_factor` solves, River f32 is lossless on every
-queryable value; u16 adds a small EV error (equity is unaffected). Reach for Turn/Flop only
-to archive a street you will not revisit — or when saving a tournament-ICM solve (see the
-warning above). The "lossless" numbers below are chipEV.
+navigable artifact.** River f32 is lossless on every queryable value (chipEV, `bubble_factor`,
+and tournament-ICM alike); u16 adds a small EV error (equity is unaffected). Reach for
+Turn/Flop only to archive a street you will not revisit. The "lossless" numbers below are
+chipEV.
 
 ## Gotcha: precision is chosen at allocation, not at save
 
@@ -111,9 +109,9 @@ Unchanged from the existing serializer. Header (see `src/file.rs`):
 The body is a bincode stream (whole-stream zstd when compressed, multithreaded with the
 `rayon` feature). River mode writes only `storage1` (strategy) and zero-fills the
 counterfactual buffers on load before recomputing them. `tree_config` (including
-`bubble_factor`) is persisted, but tournament-ICM terminal utilities set via
-`set_tournament_icm_config` are runtime-only and are **not** persisted — see the River-mode
-warning above.
+`bubble_factor`) and the `TournamentIcmConfig` are persisted; the large precomputed ICM
+terminal utilities are not — they are re-derived from the config on load. Adding the ICM
+config to the stream bumped the format version, so older files must be re-solved.
 
 ## Reproducing the measurements
 

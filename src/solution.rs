@@ -21,14 +21,12 @@
 //! therefore exposes only what is actually controllable when serializing: the storage
 //! mode, the external zstd level, and the memo.
 //!
-//! # River mode is not safe for tournament-ICM solves
+//! # Tournament ICM
 //!
-//! A game solved with `set_tournament_icm_config` keeps its precomputed terminal ICM
-//! utilities in memory, and those are *not* persisted. River mode recomputes
-//! counterfactual values on load, and that recompute falls back to chip / bubble-factor EV,
-//! yielding *incorrect* values for an ICM solve. Use [`BoardState::Turn`] / [`BoardState::Flop`]
-//! for tournament-ICM solutions (those load the as-solved values without recomputing).
-//! chipEV and `bubble_factor` solves are unaffected. See `docs/compact-solution.md`.
+//! A game solved with `set_tournament_icm_config` keeps large precomputed terminal ICM
+//! utilities in memory. Those are not written to disk, but the small `TournamentIcmConfig`
+//! is, and the utilities are re-derived from it on load (before River's recompute), so all
+//! storage modes reload ICM-correct values. See `docs/compact-solution.md`.
 //!
 //! [`set_target_storage_mode`]: PostFlopGame::set_target_storage_mode
 //! [`PostFlopGame::allocate_memory`]: PostFlopGame::allocate_memory
@@ -145,8 +143,8 @@ impl LoadOptions {
 /// The game must be solved; otherwise the underlying `"Data is not ready to save"`
 /// error is returned (the same gate as [`save_data_to_file`]).
 ///
-/// For tournament-ICM solves, do not use River mode — its on-load recompute drops the
-/// (unpersisted) ICM utilities. See the [module docs](self).
+/// Tournament-ICM solves are supported in every storage mode (the ICM config is persisted
+/// and the terminal utilities are re-derived on load). See the [module docs](self).
 ///
 /// # Side effect
 ///

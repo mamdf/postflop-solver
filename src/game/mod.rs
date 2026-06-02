@@ -151,6 +151,7 @@ impl StorageCounts {
 
 /// Runtime tournament ICM configuration for exact terminal utility precomputation.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub struct TournamentIcmConfig {
     pub stacks: Vec<f64>,
     pub payouts: Vec<i32>,

@@ -100,7 +100,7 @@ impl PostFlopGame {
     }
 }
 
-static VERSION_STR: &str = "2026-04-28";
+static VERSION_STR: &str = "2026-06-02";
 
 thread_local! {
     static PTR_BASE: Cell<[*const u8; 2]> = Cell::new([ptr::null(); 2]);
@@ -149,6 +149,9 @@ impl Encode for PostFlopGame {
         let mut locking_strategy = self.locking_strategy.clone();
         locking_strategy.retain(|&i, _| i < num_nodes);
         locking_strategy.encode(encoder)?;
+
+        // tournament ICM config (small; the large terminal utilities are re-derived on load)
+        self.tournament_icm_config.encode(encoder)?;
 
         // store base pointers
         PTR_BASE.with(|c| {
@@ -204,6 +207,7 @@ impl Decode<()> for PostFlopGame {
             storage_ip: Decode::decode(decoder)?,
             storage_chance: Decode::decode(decoder)?,
             locking_strategy: Decode::decode(decoder)?,
+            tournament_icm_config: Decode::decode(decoder)?,
             ..Default::default()
         };
 
@@ -244,6 +248,11 @@ impl Decode<()> for PostFlopGame {
         game.init_card_fields();
         game.init_interpreter();
         game.back_to_root();
+
+        // re-derive tournament ICM terminal utilities (dropped from the file) so the
+        // River-mode recompute below uses ICM-correct terminal values
+        game.restore_tournament_icm_from_config()
+            .map_err(DecodeError::OtherString)?;
 
         // restore the counterfactual values
         if game.storage_mode == BoardState::River && game.state == State::Solved {
