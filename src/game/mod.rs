@@ -113,7 +113,8 @@ pub struct PostFlopGame {
     normalized_weights: [Vec<f32>; 2],
     cfvalues_cache: [Vec<f32>; 2],
 
-    // Tournament ICM is runtime-only in C1 and is not persisted by custom serialization yet.
+    // Tournament ICM: `tournament_icm_config` is serialized; the large
+    // `terminal_icm_utilities` are runtime-only and re-derived from the config on load.
     tournament_icm_config: Option<TournamentIcmConfig>,
     terminal_icm_utilities: Vec<Option<TerminalIcmUtility>>,
 }
