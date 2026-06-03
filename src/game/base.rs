@@ -254,7 +254,36 @@ impl PostFlopGame {
     /// targets) or use `0.0` to force iterations when testing ICM behavior.
     pub fn set_tournament_icm_config(
         &mut self,
+        config: TournamentIcmConfig,
+    ) -> Result<usize, String> {
+        self.set_tournament_icm_config_inner(config, [0, 0])
+    }
+
+    /// Same as [`set_tournament_icm_config`](Self::set_tournament_icm_config), but threads a
+    /// per-seat `base_contribution`: the chips each seat invested BEFORE this game began.
+    ///
+    /// This is the entry point for re-rooted river games. A re-rooted river game has a
+    /// `tree_config.starting_pot` that already folds in the pre-river pot, so its in-tree
+    /// `contribution` only measures river-local investment. Passing the pre-river investment as
+    /// `base_contribution` lets the terminal ICM utilities deduct the FULL hand investment from
+    /// each seat's absolute tournament stack, reconstructing the true full-hand outcome.
+    ///
+    /// `base_contribution` is consumed at config time, baked into the precomputed
+    /// `terminal_icm_utilities`, and then discarded — it is NOT stored on the config and does NOT
+    /// round-trip through serialization. Re-rooted river games with a non-zero base are never
+    /// persisted, and every saved game has `base == [0, 0]`.
+    pub fn set_tournament_icm_config_with_base_contribution(
+        &mut self,
+        config: TournamentIcmConfig,
+        base_contribution: [i32; 2],
+    ) -> Result<usize, String> {
+        self.set_tournament_icm_config_inner(config, base_contribution)
+    }
+
+    fn set_tournament_icm_config_inner(
+        &mut self,
         mut config: TournamentIcmConfig,
+        base_contribution: [i32; 2],
     ) -> Result<usize, String> {
         if self.state != State::TreeBuilt {
             return Err("Tournament ICM can only be configured after tree build and before memory allocation".to_string());
@@ -293,15 +322,24 @@ impl PostFlopGame {
 
         config.payouts = normalize_payouts(&config.payouts, player_count);
 
-        let baseline_values = self.tournament_icm_values_for_terminal(&config, [0, 0], None)?;
+        let baseline_values =
+            self.tournament_icm_values_for_terminal(&config, [0, 0], base_contribution, None)?;
         let baseline_oop = baseline_values[config.oop_seat];
         let baseline_ip = baseline_values[config.ip_seat];
 
-        let utilities =
-            self.precompute_terminal_icm_utilities(&config, baseline_oop, baseline_ip)?;
+        let utilities = self.precompute_terminal_icm_utilities(
+            &config,
+            base_contribution,
+            baseline_oop,
+            baseline_ip,
+        )?;
 
         self.tournament_icm_config = Some(config);
         self.terminal_icm_utilities = utilities;
+        // Retain the base for the runtime fold-equivalent path; the terminal utilities already
+        // baked it in, but `tournament_icm_fold_equivalent_delta` recomputes its baseline/fold
+        // stacks live and must use the SAME base to stay consistent.
+        self.base_contribution = base_contribution;
 
         Ok(self.tournament_icm_utility_count())
     }
@@ -329,11 +367,12 @@ impl PostFlopGame {
         let Some(config) = self.tournament_icm_config.take() else {
             return Ok(());
         };
-        let baseline_values = self.tournament_icm_values_for_terminal(&config, [0, 0], None)?;
+        let baseline_values =
+            self.tournament_icm_values_for_terminal(&config, [0, 0], [0, 0], None)?;
         let baseline_oop = baseline_values[config.oop_seat];
         let baseline_ip = baseline_values[config.ip_seat];
         self.terminal_icm_utilities =
-            self.precompute_terminal_icm_utilities(&config, baseline_oop, baseline_ip)?;
+            self.precompute_terminal_icm_utilities(&config, [0, 0], baseline_oop, baseline_ip)?;
         self.tournament_icm_config = Some(config);
         Ok(())
     }
@@ -406,11 +445,16 @@ impl PostFlopGame {
         contribution: [i32; 2],
     ) -> Option<f32> {
         let config = self.tournament_icm_config.as_ref()?;
+        // Both calls MUST use the stored base so the fold-equivalent centering is consistent with
+        // the offset baked into the terminal utilities. For re-rooted river games (base != [0, 0])
+        // ICM equity is nonlinear in the stack vector, so passing [0, 0] here would mix an
+        // un-offset centering with offset terminals and produce wrong reported EVs.
+        let base = self.base_contribution;
         let baseline = self
-            .tournament_icm_values_for_terminal(config, [0, 0], None)
+            .tournament_icm_values_for_terminal(config, [0, 0], base, None)
             .ok()?;
         let fold = self
-            .tournament_icm_values_for_terminal(config, contribution, Some(player ^ 1))
+            .tournament_icm_values_for_terminal(config, contribution, base, Some(player ^ 1))
             .ok()?;
         let seat = if player == 0 {
             config.oop_seat
@@ -799,11 +843,13 @@ impl PostFlopGame {
     fn clear_tournament_icm_internal(&mut self) {
         self.tournament_icm_config = None;
         self.terminal_icm_utilities = Vec::new();
+        self.base_contribution = [0, 0];
     }
 
     fn precompute_terminal_icm_utilities(
         &self,
         config: &TournamentIcmConfig,
+        base_contribution: [i32; 2],
         baseline_oop: f64,
         baseline_ip: f64,
     ) -> Result<Vec<Option<TerminalIcmUtility>>, String> {
@@ -834,10 +880,10 @@ impl PostFlopGame {
                         config.ip_seat
                     };
 
-                    if config.stacks[seat] < contribution[player] as f64 {
+                    let total_contribution = base_contribution[player] + contribution[player];
+                    if config.stacks[seat] < total_contribution as f64 {
                         return Err(format!(
-                            "Tournament ICM active stack for player {player} cannot cover terminal contribution {}",
-                            contribution[player]
+                            "Tournament ICM active stack for player {player} cannot cover terminal contribution {total_contribution}"
                         ));
                     }
                 }
@@ -845,12 +891,24 @@ impl PostFlopGame {
                 let utility = if let Some(&utility) = utility_cache.get(&contribution) {
                     utility
                 } else {
-                    let oop_win =
-                        self.tournament_icm_values_for_terminal(config, contribution, Some(0))?;
-                    let ip_win =
-                        self.tournament_icm_values_for_terminal(config, contribution, Some(1))?;
-                    let tie =
-                        self.tournament_icm_values_for_terminal(config, contribution, None)?;
+                    let oop_win = self.tournament_icm_values_for_terminal(
+                        config,
+                        contribution,
+                        base_contribution,
+                        Some(0),
+                    )?;
+                    let ip_win = self.tournament_icm_values_for_terminal(
+                        config,
+                        contribution,
+                        base_contribution,
+                        Some(1),
+                    )?;
+                    let tie = self.tournament_icm_values_for_terminal(
+                        config,
+                        contribution,
+                        base_contribution,
+                        None,
+                    )?;
 
                     let utility = TerminalIcmUtility {
                         win: [
@@ -933,30 +991,43 @@ impl PostFlopGame {
         Ok((remaining, prev_amount))
     }
 
+    /// Computes the ICM values at a terminal outcome.
+    ///
+    /// `contribution` is the per-player investment made WITHIN this game's tree (measured from
+    /// `effective_stack`). `base_contribution` is the per-player investment made BEFORE this game
+    /// began — non-zero only for re-rooted river games whose `starting_pot` already folds in the
+    /// pre-river pot. The winner formula deducts the FULL investment (`base + contribution`) from
+    /// each seat's absolute tournament stack, while the pot is built from `contribution` only
+    /// (the re-rooted `starting_pot` already contains `base`, so adding it again would
+    /// double-count). With `base_contribution == [0, 0]` this is byte-identical to the legacy
+    /// formula.
     fn tournament_icm_values_for_terminal(
         &self,
         config: &TournamentIcmConfig,
         contribution: [i32; 2],
+        base_contribution: [i32; 2],
         winner: Option<usize>,
     ) -> Result<Vec<f64>, String> {
         let mut stacks = config.stacks.clone();
         let starting_pot = self.tree_config.starting_pot as f64;
-        let contribution = [contribution[0] as f64, contribution[1] as f64];
-        let pot = starting_pot + contribution[0] + contribution[1];
+        let c = [contribution[0] as f64, contribution[1] as f64];
+        let b = [base_contribution[0] as f64, base_contribution[1] as f64];
+        let pot = starting_pot + c[0] + c[1]; // UNCHANGED: base already lives in starting_pot
+        let total = [b[0] + c[0], b[1] + c[1]]; // full-hand deduction
 
         match winner {
             Some(0) => {
-                stacks[config.oop_seat] = stacks[config.oop_seat] - contribution[0] + pot;
-                stacks[config.ip_seat] -= contribution[1];
+                stacks[config.oop_seat] += pot - total[0];
+                stacks[config.ip_seat] -= total[1];
             }
             Some(1) => {
-                stacks[config.ip_seat] = stacks[config.ip_seat] - contribution[1] + pot;
-                stacks[config.oop_seat] -= contribution[0];
+                stacks[config.ip_seat] += pot - total[1];
+                stacks[config.oop_seat] -= total[0];
             }
             Some(_) => unreachable!(),
             None => {
-                stacks[config.oop_seat] = stacks[config.oop_seat] - contribution[0] + pot * 0.5;
-                stacks[config.ip_seat] = stacks[config.ip_seat] - contribution[1] + pot * 0.5;
+                stacks[config.oop_seat] += pot * 0.5 - total[0];
+                stacks[config.ip_seat] += pot * 0.5 - total[1];
             }
         }
 
@@ -1824,6 +1895,302 @@ impl PostFlopGame {
                 action_counter += num_bytes * node.num_elements as usize;
                 ip_counter += num_bytes * node.num_elements_ip as usize;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod icm_offset_tests {
+    use super::*;
+    use crate::range::{flop_from_str, Range};
+
+    /// Builds a minimal flop game whose `tree_config.starting_pot` can be mutated freely so we can
+    /// exercise `tournament_icm_values_for_terminal` directly (it only reads `starting_pot` from
+    /// `tree_config` plus the provided `config`/`contribution`/`base_contribution`). No solve and no
+    /// memory allocation are required.
+    fn minimal_game() -> PostFlopGame {
+        let card_config = CardConfig {
+            range: [Range::ones(); 2],
+            flop: flop_from_str("Td9d6h").unwrap(),
+            ..Default::default()
+        };
+        let tree_config = TreeConfig {
+            starting_pot: 60,
+            effective_stack: 970,
+            ..Default::default()
+        };
+        let action_tree = ActionTree::new(tree_config).unwrap();
+        PostFlopGame::with_config(card_config, action_tree).unwrap()
+    }
+
+    fn icm_config() -> TournamentIcmConfig {
+        // Concrete absolute tournament stacks/payouts/seats. Both players hold enough chips to
+        // cover the contributions used below so the :837 guard does not trip in the precompute,
+        // but here we call `tournament_icm_values_for_terminal` directly (no guard) anyway.
+        TournamentIcmConfig {
+            stacks: vec![1500.0, 1200.0, 800.0],
+            payouts: vec![50, 30, 20],
+            oop_seat: 0,
+            ip_seat: 1,
+        }
+    }
+
+    fn approx_eq(a: &[f64], b: &[f64]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-9)
+    }
+
+    /// The SAME physical hand expressed two ways must yield IDENTICAL ICM equities:
+    ///   FULL:    starting_pot = parent_pot,        contribution = [P+rc0, P+rc1], base = [0, 0]
+    ///   REROOT:  starting_pot = parent_pot + 2P,   contribution = [rc0, rc1],     base = [P, P]
+    /// The re-rooted `starting_pot` already folds in the pre-river pot (2P), so the offset must
+    /// reconstruct the exact full-hand terminal stacks for every winner branch.
+    #[test]
+    fn reroot_offset_matches_full_hand_for_every_winner() {
+        let parent_pot: i32 = 40; // pot at the root of the FULL hand (before P is invested)
+        let p: i32 = 25; // pre-river investment per seat
+        let rc0: i32 = 60; // river-local investment, OOP
+        let rc1: i32 = 80; // river-local investment, IP
+
+        let mut game = minimal_game();
+        let config = icm_config();
+
+        for winner in [Some(0usize), Some(1usize), None] {
+            // FULL: the whole hand lives in this tree; nothing was invested before it.
+            game.tree_config.starting_pot = parent_pot;
+            let full = game
+                .tournament_icm_values_for_terminal(
+                    &config,
+                    [p + rc0, p + rc1],
+                    [0, 0],
+                    winner,
+                )
+                .unwrap();
+
+            // REROOT: the river is re-rooted; starting_pot already contains the pre-river pot (2P),
+            // and `base = [P, P]` carries the pre-river investment so the full deduction is correct.
+            game.tree_config.starting_pot = parent_pot + 2 * p;
+            let reroot = game
+                .tournament_icm_values_for_terminal(&config, [rc0, rc1], [p, p], winner)
+                .unwrap();
+
+            assert!(
+                approx_eq(&full, &reroot),
+                "winner {winner:?}: FULL {full:?} != REROOT {reroot:?}"
+            );
+        }
+    }
+
+    /// Negative control: a re-rooted game with `base = [0, 0]` (the buggy path) must DIFFER from the
+    /// FULL expression, proving the offset is load-bearing rather than cosmetic. Without the base,
+    /// the re-rooted game forgets the pre-river investment and overstates both final stacks by P.
+    #[test]
+    fn reroot_without_base_differs_from_full() {
+        let parent_pot: i32 = 40;
+        let p: i32 = 25;
+        let rc0: i32 = 60;
+        let rc1: i32 = 80;
+
+        let mut game = minimal_game();
+        let config = icm_config();
+
+        for winner in [Some(0usize), Some(1usize), None] {
+            game.tree_config.starting_pot = parent_pot;
+            let full = game
+                .tournament_icm_values_for_terminal(
+                    &config,
+                    [p + rc0, p + rc1],
+                    [0, 0],
+                    winner,
+                )
+                .unwrap();
+
+            // Re-rooted starting_pot but WITHOUT the base offset: the bug.
+            game.tree_config.starting_pot = parent_pot + 2 * p;
+            let buggy = game
+                .tournament_icm_values_for_terminal(&config, [rc0, rc1], [0, 0], winner)
+                .unwrap();
+
+            assert!(
+                !approx_eq(&full, &buggy),
+                "winner {winner:?}: offset was cosmetic, FULL {full:?} == BUGGY {buggy:?}"
+            );
+        }
+    }
+
+    /// With `base = [0, 0]` the new formula is byte-identical to the legacy one. We recompute the
+    /// legacy result inline (the exact code that lived in `tournament_icm_values_for_terminal`
+    /// before this change) and assert equality across all winners and several contributions.
+    #[test]
+    fn base_zero_is_byte_identical_to_legacy() {
+        let mut game = minimal_game();
+        let config = icm_config();
+
+        let legacy = |starting_pot: i32, contribution: [i32; 2], winner: Option<usize>| {
+            let mut stacks = config.stacks.clone();
+            let starting_pot = starting_pot as f64;
+            let contribution = [contribution[0] as f64, contribution[1] as f64];
+            let pot = starting_pot + contribution[0] + contribution[1];
+            match winner {
+                Some(0) => {
+                    stacks[config.oop_seat] = stacks[config.oop_seat] - contribution[0] + pot;
+                    stacks[config.ip_seat] -= contribution[1];
+                }
+                Some(1) => {
+                    stacks[config.ip_seat] = stacks[config.ip_seat] - contribution[1] + pot;
+                    stacks[config.oop_seat] -= contribution[0];
+                }
+                Some(_) => unreachable!(),
+                None => {
+                    stacks[config.oop_seat] = stacks[config.oop_seat] - contribution[0] + pot * 0.5;
+                    stacks[config.ip_seat] = stacks[config.ip_seat] - contribution[1] + pot * 0.5;
+                }
+            }
+            terminal_icm_values(&stacks, &config.payouts).unwrap()
+        };
+
+        for &starting_pot in &[60, 100, 250] {
+            for &contribution in &[[0, 0], [50, 50], [120, 90], [0, 70]] {
+                game.tree_config.starting_pot = starting_pot;
+                for winner in [Some(0usize), Some(1usize), None] {
+                    let new = game
+                        .tournament_icm_values_for_terminal(&config, contribution, [0, 0], winner)
+                        .unwrap();
+                    let old = legacy(starting_pot, contribution, winner);
+                    assert_eq!(new, old, "starting_pot {starting_pot} contribution {contribution:?} winner {winner:?}");
+                }
+            }
+        }
+    }
+
+    /// The :837 guard must trip exactly when a seat cannot cover its FULL investment
+    /// (`base + contribution`), and must NOT trip when both seats can cover it. We exercise the
+    /// guard through `precompute_terminal_icm_utilities`, building a tiny single-action tree so a
+    /// terminal node exists, and choosing a `base_contribution` that pushes one seat over its stack.
+    #[test]
+    fn guard_trips_when_seat_cannot_cover_base_plus_contribution() {
+        // effective_stack small so the river-local contribution stays tiny; the base pushes the
+        // total over the seat's absolute stack.
+        let card_config = CardConfig {
+            range: [Range::ones(); 2],
+            flop: flop_from_str("Td9d6h").unwrap(),
+            ..Default::default()
+        };
+        let tree_config = TreeConfig {
+            starting_pot: 60,
+            effective_stack: 100,
+            ..Default::default()
+        };
+        let action_tree = ActionTree::new(tree_config).unwrap();
+        let game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+
+        // OOP seat 0 has only 30 chips. With base 25 the all-check terminal (river contribution 0)
+        // already needs 25 <= 30 (OK). Bump base above the stack to force the guard.
+        let config = TournamentIcmConfig {
+            stacks: vec![30.0, 1000.0],
+            payouts: vec![70, 30],
+            oop_seat: 0,
+            ip_seat: 1,
+        };
+        let baseline =
+            game.tournament_icm_values_for_terminal(&config, [0, 0], [0, 0], None).unwrap();
+        let baseline_oop = baseline[config.oop_seat];
+        let baseline_ip = baseline[config.ip_seat];
+
+        // base = [0, 0] -> contributions are 0 at the all-check terminal -> guard passes.
+        assert!(game
+            .precompute_terminal_icm_utilities(&config, [0, 0], baseline_oop, baseline_ip)
+            .is_ok());
+
+        // base = [40, 0] for OOP exceeds its 30-chip stack -> guard must trip.
+        let err = game
+            .precompute_terminal_icm_utilities(&config, [40, 0], baseline_oop, baseline_ip)
+            .unwrap_err();
+        assert!(
+            err.contains("cannot cover terminal contribution 40"),
+            "unexpected guard error: {err}"
+        );
+    }
+
+    /// Installs an ICM config + base onto the game by hand so we can call the runtime
+    /// `tournament_icm_fold_equivalent_delta` path directly. This mirrors exactly what
+    /// `set_tournament_icm_config_inner` stores (`tournament_icm_config` + `base_contribution`),
+    /// without requiring a solved tree — the delta only reads `tree_config.starting_pot`, the
+    /// stored config, and the stored base.
+    fn install_icm(game: &mut PostFlopGame, config: TournamentIcmConfig, base: [i32; 2]) {
+        game.tournament_icm_config = Some(config);
+        game.base_contribution = base;
+    }
+
+    /// PHYSICAL-EQUIVALENCE for the fold-equivalent centering: the SAME physical hand expressed two
+    /// ways must yield the SAME `tournament_icm_fold_equivalent_delta` for each player.
+    ///   FULL:   starting_pot = parent_pot,      config base [0, 0], delta(player, [P+t0, P+t1])
+    ///   REROOT: starting_pot = parent_pot + 2P, config base [P, P], delta(player, [t0, t1])
+    /// Because the delta is computed live from the STORED base, the re-rooted game must reconstruct
+    /// the true full-hand fold-equivalent delta. A 3-seat payout ladder makes ICM equity nonlinear
+    /// in the stack vector, so this would NOT hold if the base were dropped (see negative control).
+    #[test]
+    fn fold_equivalent_delta_reroot_matches_full_hand() {
+        let parent_pot: i32 = 40;
+        let p: i32 = 25; // pre-river investment per seat
+        let t0: i32 = 60; // river-local investment, OOP
+        let t1: i32 = 80; // river-local investment, IP
+
+        for player in [0usize, 1usize] {
+            // FULL framing.
+            let mut full_game = minimal_game();
+            full_game.tree_config.starting_pot = parent_pot;
+            install_icm(&mut full_game, icm_config(), [0, 0]);
+            let full = full_game
+                .tournament_icm_fold_equivalent_delta(player, [p + t0, p + t1])
+                .unwrap();
+
+            // REROOT framing: starting_pot folds in the pre-river pot (2P), and the STORED base
+            // [P, P] carries the pre-river investment.
+            let mut reroot_game = minimal_game();
+            reroot_game.tree_config.starting_pot = parent_pot + 2 * p;
+            install_icm(&mut reroot_game, icm_config(), [p, p]);
+            let reroot = reroot_game
+                .tournament_icm_fold_equivalent_delta(player, [t0, t1])
+                .unwrap();
+
+            assert!(
+                (full - reroot).abs() < 1e-5,
+                "player {player}: FULL delta {full} != REROOT delta {reroot}"
+            );
+        }
+    }
+
+    /// Negative control for the fold-equivalent path: a re-rooted game with a STORED base of
+    /// [0, 0] (what the buggy hardcoded `[0, 0]` produced) must give a DIFFERENT delta from the
+    /// FULL framing. This proves the stored base is load-bearing for the REPORTED EVs (the
+    /// fold-equivalent centering), not just for the terminal utilities.
+    #[test]
+    fn fold_equivalent_delta_reroot_without_base_differs_from_full() {
+        let parent_pot: i32 = 40;
+        let p: i32 = 25;
+        let t0: i32 = 60;
+        let t1: i32 = 80;
+
+        for player in [0usize, 1usize] {
+            let mut full_game = minimal_game();
+            full_game.tree_config.starting_pot = parent_pot;
+            install_icm(&mut full_game, icm_config(), [0, 0]);
+            let full = full_game
+                .tournament_icm_fold_equivalent_delta(player, [p + t0, p + t1])
+                .unwrap();
+
+            // Re-rooted starting_pot but base dropped to [0, 0]: the bug.
+            let mut buggy_game = minimal_game();
+            buggy_game.tree_config.starting_pot = parent_pot + 2 * p;
+            install_icm(&mut buggy_game, icm_config(), [0, 0]);
+            let buggy = buggy_game
+                .tournament_icm_fold_equivalent_delta(player, [t0, t1])
+                .unwrap();
+
+            assert!(
+                (full - buggy).abs() > 1e-3,
+                "player {player}: base was cosmetic, FULL delta {full} == BUGGY delta {buggy}"
+            );
         }
     }
 }
