@@ -34,3 +34,12 @@ harness = false
 [[bench]]
 name = "compact_save"
 harness = false
+
+# Tests exercise the CFR solver, which is unusably slow at the default `test`
+# profile opt-level (0) — a spot that solves in ~1s under release can take
+# minutes in debug, which is why raw `cargo test` appears to hang.
+# opt-level = 3 gives release-grade speed while KEEPING debug-assertions and
+# overflow checks ON (the `test` profile inherits `dev`), so tests stay reliable
+# AND fast. This only affects `cargo test`; the release binary is unchanged.
+[profile.test]
+opt-level = 3
