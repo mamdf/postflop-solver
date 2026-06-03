@@ -878,6 +878,12 @@ impl PostFlopGame {
             let player = (node.player & PLAYER_MASK) as usize;
             for offset in 0..node.num_children as usize {
                 let child_index = node_index + node.children_offset as usize + offset;
+                if child_index >= self.node_arena.len() {
+                    // Turn/Flop-mode save: the river subtree was dropped from the arena, so the
+                    // child pointer dangles past the end. Those children are unreachable for ICM
+                    // (the precompute only needs resident terminals), so skip them.
+                    continue;
+                }
                 let action = self.node_arena[child_index].lock().prev_action;
                 let (next_remaining, next_prev_amount) =
                     Self::next_icm_contribution_state(player, action, remaining, prev_amount)?;

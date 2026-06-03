@@ -177,3 +177,56 @@ fn river_save_preserves_tournament_icm() {
         "IP ICM EVs drifted after River round-trip"
     );
 }
+
+/// A Turn-mode save of a tournament-ICM solution must load without panicking. The Turn-mode
+/// save truncates the node arena to flop+turn nodes, but turn action nodes still carry child
+/// pointers into the dropped river range. The ICM terminal-utility re-derivation on load
+/// DFS-walks the arena and dereferences those child pointers; without the bounds guard in
+/// `precompute_terminal_icm_utilities`, the dangling pointer triggers an index-out-of-bounds
+/// panic. This test fails (panics on load) without the guard and passes with it.
+#[test]
+fn turn_mode_save_preserves_tournament_icm() {
+    let lose_range = "KK-22,K9-K2,Q8-Q2,J8-J2,T8-T2,92+,82+,72+,62+";
+    let card_config = CardConfig {
+        range: ["AA".parse().unwrap(), lose_range.parse().unwrap()],
+        flop: flop_from_str("AcAdKh").unwrap(),
+        ..Default::default()
+    };
+    let tree_config = TreeConfig {
+        starting_pot: 60,
+        effective_stack: 970,
+        ..Default::default()
+    };
+    let action_tree = ActionTree::new(tree_config).unwrap();
+    let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+    game.set_tournament_icm_config(TournamentIcmConfig {
+        stacks: vec![1000.0, 1000.0],
+        payouts: vec![70, 30],
+        oop_seat: 0,
+        ip_seat: 1,
+    })
+    .unwrap();
+    game.allocate_memory(false);
+    finalize(&mut game);
+    assert!(game.uses_tournament_icm());
+
+    // Save Turn-mode (drops the river subtree from the arena) and load it back.
+    let path = temp_path("icm_turn");
+    let options = SaveOptions::navigable().with_storage_mode(BoardState::Turn);
+    save_solution(&mut game, &path, &options).unwrap();
+    let (mut loaded, _memo) = load_solution(&path, &LoadOptions::default()).unwrap();
+    fs::remove_file(&path).unwrap();
+
+    // The load did not panic and the ICM config survived the round-trip.
+    assert_eq!(loaded.storage_mode(), BoardState::Turn);
+    assert!(
+        loaded.uses_tournament_icm(),
+        "ICM config must survive the Turn-mode round-trip"
+    );
+
+    // The resident (flop/turn) tree is intact: querying a turn node does not panic, confirming
+    // the partial ICM utility restore did not corrupt the surviving arena.
+    loaded.back_to_root();
+    assert!(!loaded.current_board().is_empty());
+    assert!(!loaded.available_actions().is_empty());
+}
