@@ -57,6 +57,15 @@ postflop tree. That destroys the "cheap recompute" premise.
 `enable_parallelization` is `true` *above* the river precisely because that upper
 fan-out is the wide, expensive part (`src/game/node.rs:201-204`).
 
+**Note — the above rejection is specific to the whole-fan-out framing** (reconstructing
+all ~48 × ~44 runouts from a single flop artifact). The per-line on-demand framing —
+load one flop artifact, re-solve **one** turn-rooted subgame per dealt turn card, serve
+all its rivers from that subgame — was measured separately and reached a different
+outcome. See [`docs/flop-only-feasibility.md`](flop-only-feasibility.md) for
+pre-registered GO/NO-GO criteria, full measured tables (S1–S4, dated 2026-06-11),
+ICM results, the conditional-GO caveat for deep-SPR trees, and the follow-up adapter
+wiring scope.
+
 **The cheap sweet spot is a TURN-level save + RIVER-only re-solve** (mirroring
 PioSOLVER `no_rivers`). At a river node the board is **fixed** (1 runout, zero chance
 nodes), and a turn-level save already retains the equilibrium turn strategy needed
