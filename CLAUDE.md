@@ -82,3 +82,16 @@ just test-heavy                    # cargo test --features zstd -- --ignored
 release-optimized** — the issue is duration + full CPU, not opt-level. Benches
 are long; run them deliberately with a timeout/background, and do **not** cap
 their cores (a capped bench is not representative).
+
+<!-- BEGIN AUTOGEN:consumed-by (workspace.contracts.yaml — do not edit by hand) -->
+## Consumed by
+
+_Auto-generated from `workspace.contracts.yaml`. Do not edit by hand — run `uv run tooling/workspace-index/gen_consumed_by.py --write` from the workspace root to refresh._
+
+If you change this repo's exposed surface, these repos may break — propagate the change and run their contract tests:
+
+- **`adapters/rust/postflop-solver-api`** _(via cargo-path)_ — CFR engine (BoardState, ExpectedValueUnit, card_from_str), features=[zstd]
+  - ⚠ do NOT confuse with sibling libs/rust/postflop-solver-asian-icm-merge
+
+_Reverse-deps + transitive impact: `uv run tooling/workspace-index/impact.py libs/rust/postflop-solver`._
+<!-- END AUTOGEN:consumed-by -->
