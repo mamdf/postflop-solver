@@ -100,7 +100,8 @@ impl PostFlopGame {
     }
 }
 
-static VERSION_STR: &str = "2026-06-02";
+static VERSION_STR: &str = "2026-07-06";
+static LEGACY_VERSION_STR: &str = "2026-06-02";
 
 thread_local! {
     static PTR_BASE: Cell<[*const u8; 2]> = Cell::new([ptr::null(); 2]);
@@ -151,7 +152,9 @@ impl Encode for PostFlopGame {
         locking_strategy.encode(encoder)?;
 
         // tournament ICM config (small; the large terminal utilities are re-derived on load)
+        // and the per-seat base contribution the re-derivation must use
         self.tournament_icm_config.encode(encoder)?;
+        self.base_contribution.encode(encoder)?;
 
         // store base pointers
         PTR_BASE.with(|c| {
@@ -181,11 +184,12 @@ impl Decode<()> for PostFlopGame {
     fn decode<D: Decoder<Context = ()>>(decoder: &mut D) -> Result<Self, DecodeError> {
         // version check
         let version = String::decode(decoder)?;
-        if version != VERSION_STR {
+        if version != VERSION_STR && version != LEGACY_VERSION_STR {
             return Err(DecodeError::OtherString(format!(
-                "Version mismatch: expected '{VERSION_STR}', but got '{version}'"
+                "Version mismatch: expected '{VERSION_STR}' or '{LEGACY_VERSION_STR}', but got '{version}'"
             )));
         }
+        let legacy = version == LEGACY_VERSION_STR;
 
         // game instance
         let mut game = Self {
@@ -208,6 +212,8 @@ impl Decode<()> for PostFlopGame {
             storage_chance: Decode::decode(decoder)?,
             locking_strategy: Decode::decode(decoder)?,
             tournament_icm_config: Decode::decode(decoder)?,
+            // legacy-format files predate the field and always carried a zero base
+            base_contribution: if legacy { [0; 2] } else { Decode::decode(decoder)? },
             ..Default::default()
         };
 

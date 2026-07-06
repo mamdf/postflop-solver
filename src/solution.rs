@@ -26,7 +26,10 @@
 //! A game solved with `set_tournament_icm_config` keeps large precomputed terminal ICM
 //! utilities in memory. Those are not written to disk, but the small `TournamentIcmConfig`
 //! is, and the utilities are re-derived from it on load (before River's recompute), so all
-//! storage modes reload ICM-correct values. See `docs/compact-solution.md`.
+//! storage modes reload ICM-correct values. As of format `2026-07-06` the per-seat
+//! `base_contribution` is persisted too, so re-rooted subgames round-trip correctly; files
+//! written by the previous format load with `base_contribution = [0, 0]` (their historical
+//! behavior). See `docs/compact-solution.md`.
 //!
 //! [`set_target_storage_mode`]: PostFlopGame::set_target_storage_mode
 //! [`PostFlopGame::allocate_memory`]: PostFlopGame::allocate_memory

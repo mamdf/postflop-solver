@@ -247,8 +247,9 @@ impl PostFlopGame {
 
     /// Configures exact tournament ICM terminal utility precomputation.
     ///
-    /// This C1 runtime setting is intentionally not persisted by serialization yet. Strategy uses
-    /// the ICM deltas internally, while public displayed EV conversion is deferred to a later phase.
+    /// The small config (and the per-seat base contribution) is persisted by serialization; the
+    /// large precomputed terminal utilities are re-derived on load. Strategy uses the ICM deltas
+    /// internally, while public displayed EV conversion is deferred to a later phase.
     /// When enabled, solver utilities are payout-unit deltas, not chipEV pot units. Callers should
     /// build `target_exploitability` via
     /// [`target_exploitability_from_fraction`](Self::target_exploitability_from_fraction), which
@@ -270,10 +271,10 @@ impl PostFlopGame {
     /// `base_contribution` lets the terminal ICM utilities deduct the FULL hand investment from
     /// each seat's absolute tournament stack, reconstructing the true full-hand outcome.
     ///
-    /// `base_contribution` is consumed at config time, baked into the precomputed
-    /// `terminal_icm_utilities`, and then discarded — it is NOT stored on the config and does NOT
-    /// round-trip through serialization. Re-rooted river games with a non-zero base are never
-    /// persisted, and every saved game has `base == [0, 0]`.
+    /// `base_contribution` is consumed at config time and baked into the precomputed
+    /// `terminal_icm_utilities`. It is not stored on the config, but it IS persisted by
+    /// serialization (format `2026-07-06`), so re-rooted subgames round-trip correctly;
+    /// files written by the previous format load with `base == [0, 0]`.
     pub fn set_tournament_icm_config_with_base_contribution(
         &mut self,
         config: TournamentIcmConfig,
@@ -359,22 +360,29 @@ impl PostFlopGame {
     /// Re-derives the tournament ICM terminal utilities from the persisted config after
     /// deserialization.
     ///
-    /// The precompute is pure — it depends only on the node arena, the tree config, and the
-    /// ICM config — so it reconstructs the exact utilities that custom serialization drops
-    /// from the file. Unlike [`set_tournament_icm_config`](Self::set_tournament_icm_config),
-    /// it bypasses the `TreeBuilt` state gate because a loaded game is already solved, and it
+    /// The precompute is pure — it depends only on the node arena, the tree config, the ICM
+    /// config, and the base contribution — so it reconstructs the exact utilities that custom
+    /// serialization drops from the file. The per-seat `base_contribution` comes from the
+    /// decoded stream (legacy-format files decode it to `[0, 0]`, preserving their historical
+    /// behavior). Unlike [`set_tournament_icm_config`](Self::set_tournament_icm_config), it
+    /// bypasses the `TreeBuilt` state gate because a loaded game is already solved, and it
     /// is a no-op when no ICM config was persisted.
     #[cfg(feature = "bincode")]
     pub(super) fn restore_tournament_icm_from_config(&mut self) -> Result<(), String> {
         let Some(config) = self.tournament_icm_config.take() else {
             return Ok(());
         };
+        let base_contribution = self.base_contribution;
         let baseline_values =
-            self.tournament_icm_values_for_terminal(&config, [0, 0], [0, 0], None)?;
+            self.tournament_icm_values_for_terminal(&config, [0, 0], base_contribution, None)?;
         let baseline_oop = baseline_values[config.oop_seat];
         let baseline_ip = baseline_values[config.ip_seat];
-        self.terminal_icm_utilities =
-            self.precompute_terminal_icm_utilities(&config, [0, 0], baseline_oop, baseline_ip)?;
+        self.terminal_icm_utilities = self.precompute_terminal_icm_utilities(
+            &config,
+            base_contribution,
+            baseline_oop,
+            baseline_ip,
+        )?;
         self.tournament_icm_config = Some(config);
         Ok(())
     }

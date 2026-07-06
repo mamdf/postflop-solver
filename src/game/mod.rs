@@ -117,10 +117,9 @@ pub struct PostFlopGame {
     // `terminal_icm_utilities` are runtime-only and re-derived from the config on load.
     tournament_icm_config: Option<TournamentIcmConfig>,
     terminal_icm_utilities: Vec<Option<TerminalIcmUtility>>,
-    // Per-seat chips invested BEFORE this game began (non-zero only for re-rooted river games).
-    // This is in-memory ONLY: it is NOT serialized (the custom `Encode` skips it) and is restored
-    // to `[0, 0]` on `Decode` via `..Default::default()`. Every persisted game has base `[0, 0]`,
-    // so loading them with `[0, 0]` is correct. The runtime fold-equivalent centering path
+    // Per-seat chips invested BEFORE this game began (non-zero only for re-rooted subgames).
+    // Serialized since format 2026-07-06, right after `tournament_icm_config`; legacy files
+    // decode to `[0, 0]` (their historical behavior). The runtime fold-equivalent centering path
     // (`tournament_icm_fold_equivalent_delta`) reads this so its baseline/fold stacks stay
     // consistent with the offset baked into `terminal_icm_utilities`.
     base_contribution: [i32; 2],

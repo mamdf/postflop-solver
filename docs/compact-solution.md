@@ -53,8 +53,10 @@ Notes:
 > Those large utilities are not written to disk, but the small `TournamentIcmConfig` is — so
 > on load they are re-derived from the config + node arena (the precompute is pure and
 > deterministic) before River's recompute runs. River, Turn, and Flop all reload ICM-correct
-> values. (This requires the current file-format version; files written before it must be
-> re-solved.)
+> values. Since format `2026-07-06` the per-seat `base_contribution` (used by re-rooted
+> subgames) is persisted as well and feeds the re-derivation; files written by the previous
+> format (`2026-06-02`) still load, with `base_contribution = [0, 0]` — their historical
+> behavior. Files written before the ICM config was added must be re-solved.
 
 ## Choosing compression and precision
 
@@ -137,9 +139,12 @@ Unchanged from the existing serializer. Header (see `src/file.rs`):
 The body is a bincode stream (whole-stream zstd when compressed, multithreaded with the
 `rayon` feature). River mode writes only `storage1` (strategy) and zero-fills the
 counterfactual buffers on load before recomputing them. `tree_config` (including
-`bubble_factor`) and the `TournamentIcmConfig` are persisted; the large precomputed ICM
-terminal utilities are not — they are re-derived from the config on load. Adding the ICM
-config to the stream bumped the format version, so older files must be re-solved.
+`bubble_factor`), the `TournamentIcmConfig`, and the per-seat `base_contribution` are
+persisted; the large precomputed ICM terminal utilities are not — they are re-derived from
+the config + base on load. The current bincode version string is `2026-07-06` (added
+`base_contribution`); the decoder also accepts the previous `2026-06-02`, loading it with
+`base_contribution = [0, 0]`. Files written before the ICM config was added (older than
+`2026-06-02`) must be re-solved.
 
 ## Reproducing the measurements
 
