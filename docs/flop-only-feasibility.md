@@ -139,28 +139,28 @@ seats 0/1 (mirroring the API parity test in `postflop-solver-api/src/store/mod.r
 Moderate parent tree. ICM base: `base_contribution = [10, 10]` (pot=40 including the
 invested amounts). Seam stack=25, SPR=0.62.
 
-**Parent solve:** 5.3 s, 140 iters, expl 0.005761 (target 0.006005). `ICM=true`.
+**Parent solve:** 8.6 s, 240 iters, expl 0.002024 (target 0.002131). `ICM=true`.
 
 **File sizes (zstd L12):**
 
 | Mode | zstd bytes | unc bytes | save ms | turn/flop | river/turn | river/flop |
 |---|---|---|---|---|---|---|
-| River | 19 291 434 | 61 813 636 | 934 ms | — | 14.78× | 1 137× |
-| Turn | 1 305 600 | 2 451 461 | 114 ms | — | — | — |
-| Flop | 16 974 | 42 205 | 43 ms | 76.92× | — | — |
+| River | 19 587 589 | 61 813 638 | 904 ms | — | 14.99× | 1 155× |
+| Turn | 1 306 623 | 2 451 463 | 108 ms | — | — | — |
+| Flop | 16 964 | 42 207 | 39 ms | 77.02× | — | — |
 
-Flop artifact load: 43.7 ms.
-Seam: pot=40 stack=25 SPR=0.62, OOP combos 33.7, IP combos 68.9.
+Flop artifact load: 44.4 ms.
+Seam: pot=40 stack=25 SPR=0.62, OOP combos 33.8, IP combos 69.1.
 
 **Turn re-solve (same fat tree, TerminalIcm):**
 
 | target% | solve s | total s | iters | expl | mem MB |
 |---|---|---|---|---|---|
-| 0.50% | 0.085 | 0.087 | 30 | 0.12587 | 1.8 |
-| 0.10% | 0.214 | 0.215 | 60 | 0.02367 | 1.8 |
-| 0.02% | 0.415 | 0.417 | 130 | 0.00513 | 1.8 |
+| 0.50% | 0.099 | 0.100 | 40 | 0.04871 | 1.8 |
+| 0.10% | 0.132 | 0.133 | 60 | 0.02013 | 1.8 |
+| 0.02% | 0.313 | 0.314 | 140 | 0.00405 | 1.8 |
 
-Turn-game RAM: 1.8 MB. ICM convergence at 0.02% parity target: 130 iters, 0.417 s.
+Turn-game RAM: 1.8 MB. ICM convergence at 0.02% parity target: 140 iters, 0.314 s.
 
 PASS: all verifications including `S3 seam base_contribution [10, 10] > 0 (ICM offset
 is load-bearing)`.
@@ -213,8 +213,19 @@ See §5 for mitigations.
   requirement (`postflop-solver-api/src/store/mod.rs:740–766`). PASS.
 
 - **ICM convergence is fast on this subgame.** The 0.02% parity target required only
-  130 iters (0.417 s on the definitive run). The API parity test ceiling is
+  140 iters (0.314 s on the definitive run). The API parity test ceiling is
   `max_iterations = 3000`; this subgame is far from that bound.
+
+- **Re-measured 2026-07-06 under pot-equivalent ICM targets.** Commit `9477de5`
+  changed `exploitability_target_scale()` in ICM mode from the bust-dominated max
+  terminal delta to the ICM value of the starting pot, so a given `target%` is now
+  pot-comparable across chipEV and ICM. For the S3 parent (flop root) the same 0.1%
+  fraction became ~2.8× tighter (target 0.006005 → 0.002131; 140 → 240 iters,
+  5.3 → 8.6 s). The low-SPR turn subgame barely moved (130 → 140 iters @ 0.02%):
+  at SPR 0.62 the all-in swing was never much larger than the pot swing. All S3
+  numbers in this doc are from the 2026-07-06 re-run, which also exercised the
+  `base_contribution`-persisting file format of commit `f99bc16` (all bit-equality
+  and determinism checks passed on the new format).
 
 - **The re-solved equilibrium is the isolated-subgame Nash**, not the full-game
   equilibrium. This is the same approximation already accepted for Technique B river
@@ -231,7 +242,7 @@ See §5 for mitigations.
 |---|---|---|---|---|
 | S1 production-fat | 222× | 0.335 s | YES (44× margin) | YES (4.5× margin) |
 | S2 wide-ceiling | 144× | 0.411 s | YES (29× margin) | YES (3.7× margin) |
-| S3 TerminalIcm | 77× | 0.215 s @ 0.1%; 0.417 s @ 0.02% (ICM criterion) | YES (15× margin) | YES (12× margin vs 5 s) |
+| S3 TerminalIcm | 77× | 0.133 s @ 0.1%; 0.314 s @ 0.02% (ICM criterion) | YES (15× margin) | YES (16× margin vs 5 s) |
 | S4 monster | 305× | 3.011 s | YES (61× margin) | **Conditional GO** |
 
 All spots clear the ≥ 5× disk criterion by at least a 15× additional margin.
