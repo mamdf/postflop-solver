@@ -574,9 +574,11 @@ fn tournament_icm_changes_internal_ev() {
     assert!(utility_count > 0);
 
     let expected_oop_delta = (30.0 + 40.0 * 1060.0 / 2060.0 - 50.0) as f32;
-    assert!((game.exploitability_target_scale() - expected_oop_delta).abs() < 1e-4);
+    // Pot-equivalent ICM swing: payout spread (70 - 30) times the pot's share of total chips.
+    let expected_scale = (40.0 * 60.0 / 2060.0) as f32;
+    assert!((game.exploitability_target_scale() - expected_scale).abs() < 1e-4);
     assert!(
-        (game.target_exploitability_from_fraction(0.005) - expected_oop_delta * 0.005).abs() < 1e-7
+        (game.target_exploitability_from_fraction(0.005) - expected_scale * 0.005).abs() < 1e-7
     );
 
     game.allocate_memory(false);
@@ -597,6 +599,131 @@ fn tournament_icm_changes_internal_ev() {
         .iter()
         .zip(reported_ev.iter())
         .any(|(&legacy, &reported)| (legacy - reported).abs() > 1.0));
+}
+
+#[test]
+fn exploitability_target_scale_icm_two_player_closed_form() {
+    // budget: <1s @ RAYON_NUM_THREADS=4 (warm)
+    let card_config = CardConfig {
+        range: [Range::ones(); 2],
+        flop: flop_from_str("Td9d6h").unwrap(),
+        ..Default::default()
+    };
+
+    let tree_config = TreeConfig {
+        starting_pot: 60,
+        effective_stack: 970,
+        ..Default::default()
+    };
+
+    let action_tree = ActionTree::new(tree_config).unwrap();
+    let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+    game.set_tournament_icm_config(TournamentIcmConfig {
+        stacks: vec![1000.0, 1000.0],
+        payouts: vec![100, 0],
+        oop_seat: 0,
+        ip_seat: 1,
+    })
+    .unwrap();
+
+    // Two-player winner-take-all ICM value is payout * stack / total chips, so winning the bare
+    // pot (dead money on top of the stacks) swings each player by payout * pot / total.
+    const PAYOUT: f64 = 100.0;
+    const POT: f64 = 60.0;
+    const TOTAL_CHIPS: f64 = 1000.0 + 1000.0 + POT;
+    let expected_scale = (PAYOUT * POT / TOTAL_CHIPS) as f32;
+    assert!((game.exploitability_target_scale() - expected_scale).abs() < 1e-4);
+    assert!(
+        (game.target_exploitability_from_fraction(0.005) - expected_scale * 0.005).abs() < 1e-7
+    );
+}
+
+#[test]
+fn exploitability_target_scale_icm_respects_base_contribution() {
+    // budget: <1s @ RAYON_NUM_THREADS=4 (warm)
+    let card_config = CardConfig {
+        range: [Range::ones(); 2],
+        flop: flop_from_str("Td9d6h").unwrap(),
+        ..Default::default()
+    };
+
+    let tree_config = TreeConfig {
+        starting_pot: 60,
+        effective_stack: 970,
+        ..Default::default()
+    };
+
+    let action_tree = ActionTree::new(tree_config).unwrap();
+    let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+    game.set_tournament_icm_config_with_base_contribution(
+        TournamentIcmConfig {
+            stacks: vec![1000.0, 1000.0],
+            payouts: vec![100, 0],
+            oop_seat: 0,
+            ip_seat: 1,
+        },
+        [30, 30],
+    )
+    .unwrap();
+
+    // The 60-chip pot is exactly the two 30-chip bases, so winning it moves a stack from 970 to
+    // 1030 out of 2000 total chips: swing = payout * pot / total.
+    const PAYOUT: f64 = 100.0;
+    const POT: f64 = 60.0;
+    const TOTAL_CHIPS: f64 = 1000.0 + 1000.0;
+    let expected_scale = (PAYOUT * POT / TOTAL_CHIPS) as f32;
+    assert!((game.exploitability_target_scale() - expected_scale).abs() < 1e-4);
+}
+
+#[test]
+fn exploitability_target_scale_icm_uses_pot_swing_not_bust_swing() {
+    // budget: <1s @ RAYON_NUM_THREADS=4 (warm)
+    let card_config = CardConfig {
+        range: [Range::ones(); 2],
+        flop: flop_from_str("Td9d6h").unwrap(),
+        ..Default::default()
+    };
+
+    let tree_config = TreeConfig {
+        starting_pot: 60,
+        effective_stack: 970,
+        ..Default::default()
+    };
+
+    let action_tree = ActionTree::new(tree_config).unwrap();
+    let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+    let payouts = vec![50, 30, 20, 0];
+    game.set_tournament_icm_config_with_base_contribution(
+        TournamentIcmConfig {
+            stacks: vec![1000.0; 4],
+            payouts: payouts.clone(),
+            oop_seat: 0,
+            ip_seat: 1,
+        },
+        [30, 30],
+    )
+    .unwrap();
+
+    // Reference pot swing: win vs lose the bare 60-chip pot at zero in-tree contribution
+    // (base [30, 30] already lives inside starting_pot).
+    let win_oop =
+        crate::icm::terminal_icm_values(&[1030.0, 970.0, 1000.0, 1000.0], &payouts).unwrap();
+    let win_ip =
+        crate::icm::terminal_icm_values(&[970.0, 1030.0, 1000.0, 1000.0], &payouts).unwrap();
+    let oop_swing = win_oop[0] - win_ip[0];
+    let ip_swing = win_ip[1] - win_oop[1];
+    let expected_scale = ((oop_swing + ip_swing) * 0.5) as f32;
+    assert!((game.exploitability_target_scale() - expected_scale).abs() < 1e-4);
+
+    // The old scale was the max |terminal delta|, dominated by the full-stack bust outcome
+    // (contribution [970, 970] on top of base [30, 30]): the loser's delta is its entire
+    // baseline tournament equity, far looser than the pot swing.
+    let baseline = crate::icm::terminal_icm_values(&[1000.0; 4], &payouts).unwrap();
+    let bust = crate::icm::terminal_icm_values(&[2000.0, 0.0, 1000.0, 1000.0], &payouts).unwrap();
+    let old_style_max = (bust[0] - baseline[0])
+        .abs()
+        .max((bust[1] - baseline[1]).abs()) as f32;
+    assert!(old_style_max > 10.0 * game.exploitability_target_scale());
 }
 
 #[test]

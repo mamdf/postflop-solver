@@ -250,8 +250,10 @@ impl PostFlopGame {
     /// This C1 runtime setting is intentionally not persisted by serialization yet. Strategy uses
     /// the ICM deltas internally, while public displayed EV conversion is deferred to a later phase.
     /// When enabled, solver utilities are payout-unit deltas, not chipEV pot units. Callers should
-    /// set `target_exploitability` in payout units (usually much smaller than chipEV pot-based
-    /// targets) or use `0.0` to force iterations when testing ICM behavior.
+    /// build `target_exploitability` via
+    /// [`target_exploitability_from_fraction`](Self::target_exploitability_from_fraction), which
+    /// yields pot-comparable targets in both modes, or use `0.0` to force iterations when testing
+    /// ICM behavior.
     pub fn set_tournament_icm_config(
         &mut self,
         config: TournamentIcmConfig,
@@ -396,27 +398,58 @@ impl PostFlopGame {
     /// raw utility units expected by [`solve`](crate::solve).
     ///
     /// For chipEV and bubble-factor modes this is the starting pot in chips. For tournament ICM,
-    /// this is the largest absolute precomputed terminal ICM delta in payout units. A caller that
-    /// wants a `0.5%` target can use `game.exploitability_target_scale() * 0.005` after configuring
-    /// tournament ICM and before solving.
+    /// this is the ICM payout-unit value of the starting pot: the mean over both players of their
+    /// ICM value swing between winning and losing the bare pot at zero in-tree contribution. The
+    /// same fraction therefore means "fraction of the starting pot's worth" in both modes. A
+    /// caller that wants a `0.5%` target can use `game.exploitability_target_scale() * 0.005`
+    /// after configuring tournament ICM and before solving.
+    ///
+    /// If both seats sit on a flat segment of the payout structure, the pot swing is `0.0`, so any
+    /// relative target derived from it is `0.0` and the solve runs to its iteration limit.
     #[inline]
     pub fn exploitability_target_scale(&self) -> f32 {
         if self.uses_tournament_icm() {
-            self.terminal_icm_utilities
-                .iter()
-                .filter_map(|&utility| utility)
-                .flat_map(|utility| {
-                    utility
-                        .win
-                        .into_iter()
-                        .chain(utility.lose)
-                        .chain(utility.tie)
-                })
-                .map(f32::abs)
-                .fold(0.0, f32::max)
+            self.tournament_icm_pot_swing().unwrap_or_else(|| {
+                // Unreachable for trees built through the public API: ICM config setup already
+                // validated the zero-contribution terminal with the same computation. Fall back
+                // to the (much looser) max terminal delta rather than panicking in release.
+                debug_assert!(false, "tournament ICM pot swing unavailable");
+                self.tournament_icm_max_terminal_delta()
+            })
         } else {
             self.tree_config.starting_pot as f32
         }
+    }
+
+    /// Computes the mean over both players of their ICM value swing between winning and losing
+    /// the bare starting pot at zero in-tree contribution, in payout units.
+    fn tournament_icm_pot_swing(&self) -> Option<f32> {
+        let config = self.tournament_icm_config.as_ref()?;
+        let win0 = self
+            .tournament_icm_values_for_terminal(config, [0, 0], self.base_contribution, Some(0))
+            .ok()?;
+        let win1 = self
+            .tournament_icm_values_for_terminal(config, [0, 0], self.base_contribution, Some(1))
+            .ok()?;
+        let oop_swing = win0[config.oop_seat] - win1[config.oop_seat];
+        let ip_swing = win1[config.ip_seat] - win0[config.ip_seat];
+        Some(((oop_swing + ip_swing) * 0.5) as f32)
+    }
+
+    /// Fallback scale: the largest absolute precomputed terminal ICM delta in payout units.
+    fn tournament_icm_max_terminal_delta(&self) -> f32 {
+        self.terminal_icm_utilities
+            .iter()
+            .filter_map(|&utility| utility)
+            .flat_map(|utility| {
+                utility
+                    .win
+                    .into_iter()
+                    .chain(utility.lose)
+                    .chain(utility.tie)
+            })
+            .map(f32::abs)
+            .fold(0.0, f32::max)
     }
 
     /// Converts a relative exploitability target into raw utility units.

@@ -70,7 +70,10 @@ pub fn solve<T: Game>(
 ///
 /// This method returns both the exploitability of the obtained strategy and the number of executed
 /// iterations. For non-chipEV utility models such as tournament ICM, `target_exploitability` must
-/// be expressed in the same utility units as [`compute_exploitability`].
+/// be expressed in the same utility units as [`compute_exploitability`]. The recommended way to
+/// build such a value is
+/// [`PostFlopGame::target_exploitability_from_fraction`](crate::PostFlopGame::target_exploitability_from_fraction),
+/// which yields pot-comparable targets in both modes.
 pub fn solve_with_result<T: Game>(
     game: &mut T,
     max_num_iterations: u32,
