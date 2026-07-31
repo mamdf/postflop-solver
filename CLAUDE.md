@@ -91,7 +91,7 @@ _Auto-generated from `workspace.contracts.yaml`. Do not edit by hand — run `uv
 If you change this repo's exposed surface, these repos may break — propagate the change and run their contract tests:
 
 - **`adapters/rust/postflop-solver-api`** _(via cargo-path)_ — CFR engine (BoardState, ExpectedValueUnit, card_from_str), features=[zstd]
-  - ⚠ do NOT confuse with sibling libs/rust/postflop-solver-asian-icm-merge
+  - ⚠ the ICM-fork sibling libs/rust/postflop-solver-asian-icm-merge was DELETED 2026-07-31 and is unrecoverable; the tournament-ICM API survives on this repo's own main
 
 _Reverse-deps + transitive impact: `uv run tooling/workspace-index/impact.py libs/rust/postflop-solver`._
 <!-- END AUTOGEN:consumed-by -->
