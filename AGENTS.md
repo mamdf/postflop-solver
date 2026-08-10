@@ -86,12 +86,10 @@ their cores (a capped bench is not representative).
 <!-- BEGIN AUTOGEN:consumed-by (workspace.contracts.yaml — do not edit by hand) -->
 ## Consumed by
 
-_Auto-generated from `workspace.contracts.yaml`. Do not edit by hand — run `uv run tooling/workspace-index/gen_consumed_by.py --write` from the workspace root to refresh._
+If you change this repo's exposed surface, these repos may break — ⚠ marks an
+edge that declares a risk. Full `what`/`risk` prose:
+`uv run tooling/workspace-index/impact.py libs/rust/postflop-solver`.
+Refresh: `uv run tooling/workspace-index/gen_consumed_by.py --write`.
 
-If you change this repo's exposed surface, these repos may break — propagate the change and run their contract tests:
-
-- **`adapters/rust/postflop-solver-api`** _(via cargo-path)_ — CFR engine (BoardState, ExpectedValueUnit, card_from_str), features=[zstd]
-  - ⚠ the ICM-fork sibling libs/rust/postflop-solver-asian-icm-merge was DELETED 2026-07-31 and is unrecoverable; the tournament-ICM API survives on this repo's own main
-
-_Reverse-deps + transitive impact: `uv run tooling/workspace-index/impact.py libs/rust/postflop-solver`._
+- **`adapters/rust/postflop-solver-api`** (cargo-path) — CFR engine… ⚠
 <!-- END AUTOGEN:consumed-by -->
