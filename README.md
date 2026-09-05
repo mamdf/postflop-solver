@@ -39,7 +39,7 @@ See [CHANGES.md](CHANGES.md) for details about breaking changes.
 
 ```toml
 [dependencies]
-postflop-solver = { git = "https://github.com/b-inary/postflop-solver" }
+postflop-solver = { git = "https://github.com/mamdf/postflop-solver" }
 ```
 
 - Examples

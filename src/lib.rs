@@ -4,7 +4,7 @@
 //!
 //! See the [examples] directory.
 //!
-//! [examples]: https://github.com/b-inary/postflop-solver/tree/main/examples
+//! [examples]: https://github.com/mamdf/postflop-solver/tree/main/examples
 //!
 //! # Implementation details
 //! - **Algorithm**: The solver uses the state-of-the-art [Discounted CFR] algorithm.
