@@ -92,4 +92,5 @@ edge that declares a risk. Full `what`/`risk` prose:
 Refresh: `uv run tooling/workspace-index/gen_consumed_by.py --write`.
 
 - **`adapters/rust/postflop-solver-api`** (cargo-path) — CFR engine… ⚠
+- **`pluribus/poker-game`** (cargo-path) — exact postflop solver for the abstraction-loss harness… ⚠
 <!-- END AUTOGEN:consumed-by -->
