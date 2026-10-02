@@ -83,14 +83,8 @@ release-optimized** — the issue is duration + full CPU, not opt-level. Benches
 are long; run them deliberately with a timeout/background, and do **not** cap
 their cores (a capped bench is not representative).
 
-<!-- BEGIN AUTOGEN:consumed-by (workspace.contracts.yaml — do not edit by hand) -->
-## Consumed by
+## Cross-repo consumers
 
-If you change this repo's exposed surface, these repos may break — ⚠ marks an
-edge that declares a risk. Full `what`/`risk` prose:
-`uv run tooling/workspace-index/impact.py libs/rust/postflop-solver`.
-Refresh: `uv run tooling/workspace-index/gen_consumed_by.py --write`.
-
-- **`adapters/rust/postflop-solver-api`** (cargo-path) — CFR engine… ⚠
-- **`pluribus/poker-game`** (cargo-path) — exact postflop solver for the abstraction-loss harness… ⚠
-<!-- END AUTOGEN:consumed-by -->
+Other poker-stack repos may depend on this one. Before changing its exposed
+surface, run from the workspace root:
+`uv run tooling/workspace-index/impact.py postflop-solver`
