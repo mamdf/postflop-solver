@@ -13,8 +13,8 @@ use postflop_solver::*;
 // ranges -- NOT of the full game. It drops the constraint that the flop strategy
 // stays a best response to the (now different) turn play. It is a standard,
 // accepted approximation for adding detail cheaply, but it is not equivalent to
-// a full, detailed flop-to-river solve. If you need that fidelity instead, keep
-// the full game and use node locking (see `examples/node_locking.rs`).
+// a full, detailed flop-to-river solve. If you need that fidelity instead, solve
+// the full game (optionally pinning nodes, see `examples/node_locking.rs`).
 // ============================================================================
 
 fn main() {

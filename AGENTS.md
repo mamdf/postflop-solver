@@ -83,6 +83,14 @@ release-optimized** — the issue is duration + full CPU, not opt-level. Benches
 are long; run them deliberately with a timeout/background, and do **not** cap
 their cores (a capped bench is not representative).
 
+## Strategy locking
+
+There is **no "lock range" API**. The only mechanism is node locking:
+`PostFlopGame::lock_current_strategy` (per node, per hand; see
+`examples/node_locking.rs`). Locks also constrain the best response, so with
+locked nodes `compute_exploitability` is the exploitability of the restricted
+game, not of the locked strategy.
+
 ## Cross-repo consumers
 
 Other poker-stack repos may depend on this one. Before changing its exposed
