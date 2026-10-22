@@ -213,7 +213,11 @@ impl Decode<()> for PostFlopGame {
             locking_strategy: Decode::decode(decoder)?,
             tournament_icm_config: Decode::decode(decoder)?,
             // legacy-format files predate the field and always carried a zero base
-            base_contribution: if legacy { [0; 2] } else { Decode::decode(decoder)? },
+            base_contribution: if legacy {
+                [0; 2]
+            } else {
+                Decode::decode(decoder)?
+            },
             ..Default::default()
         };
 

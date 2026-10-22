@@ -1837,7 +1837,10 @@ fn assert_reach_survives_isomorphism(flop: &str) {
             }
         }
     }
-    assert!(any_nonzero, "the river node must be reachable by some hands");
+    assert!(
+        any_nonzero,
+        "the river node must be reachable by some hands"
+    );
 
     // The turnkey extractor must succeed and return non-empty ranges.
     let [oop, ip] = game.node_input_ranges();

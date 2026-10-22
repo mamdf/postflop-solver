@@ -19,8 +19,7 @@ const WEB_CASE_STARTING_POT: i32 = 12;
 const WEB_CASE_EFFECTIVE_STACK: i32 = 24;
 const ROOT_WEB_CASE_CSV: &str = include_str!("../fixtures/web/postflop-solver.csv");
 const BET8_WEB_CASE_CSV: &str = include_str!("../fixtures/web/bet8.csv");
-const BET8_CALL_TURN_KH_WEB_CASE_CSV: &str =
-    include_str!("../fixtures/web/bet8_C_turn-Kh.csv");
+const BET8_CALL_TURN_KH_WEB_CASE_CSV: &str = include_str!("../fixtures/web/bet8_C_turn-Kh.csv");
 const BET8_CALL_TURN_KH_CHECK_WEB_CASE_CSV: &str =
     include_str!("../fixtures/web/bet8_C_turn-Kh_X.csv");
 const BET8_CALL_TURN_KH_CHECK_CHECK_RIVER_5S_WEB_CASE_CSV: &str =
@@ -409,14 +408,18 @@ pub fn assert_fixture_matches_snapshot(
         fixture.name
     );
     assert_eq!(
-        snapshot.action_labels.len(), expected.action_labels.len(),
+        snapshot.action_labels.len(),
+        expected.action_labels.len(),
         "fixture '{}' action count mismatch",
         fixture.name
     );
 
     for label in &expected.action_labels {
         assert!(
-            snapshot.action_labels.iter().any(|candidate| candidate == label),
+            snapshot
+                .action_labels
+                .iter()
+                .any(|candidate| candidate == label),
             "fixture '{}' missing runtime action label '{}'",
             fixture.name,
             label
@@ -490,20 +493,28 @@ pub fn assert_fixture_matches_snapshot(
                     )
                 });
             let actual_freq = actual_hand.action_freqs[action_index];
-            let expected_freq = expected_hand.action_freqs.get(label).copied().unwrap_or_else(|| {
-                panic!(
-                    "fixture '{}' missing expected frequency for action '{}'",
-                    fixture.name, label
-                )
-            });
-            let actual_action_ev = actual_hand.action_evs[action_index];
-            let expected_action_ev =
-                expected_hand.action_evs.get(label).copied().unwrap_or_else(|| {
+            let expected_freq = expected_hand
+                .action_freqs
+                .get(label)
+                .copied()
+                .unwrap_or_else(|| {
                     panic!(
-                        "fixture '{}' missing expected action EV for action '{}'",
+                        "fixture '{}' missing expected frequency for action '{}'",
                         fixture.name, label
                     )
                 });
+            let actual_action_ev = actual_hand.action_evs[action_index];
+            let expected_action_ev =
+                expected_hand
+                    .action_evs
+                    .get(label)
+                    .copied()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "fixture '{}' missing expected action EV for action '{}'",
+                            fixture.name, label
+                        )
+                    });
 
             let action_freq_diff = (actual_freq - expected_freq).abs();
             let action_ev_diff = (actual_action_ev - expected_action_ev).abs();
@@ -813,7 +824,8 @@ mod tests {
 
     #[test]
     fn parses_call_fold_web_fixture_action_evs() {
-        let parsed = parse_web_case_csv(BET8_CALL_TURN_KH_CHECK_CHECK_RIVER_5S_ALLIN16_WEB_CASE_CSV);
+        let parsed =
+            parse_web_case_csv(BET8_CALL_TURN_KH_CHECK_CHECK_RIVER_5S_ALLIN16_WEB_CASE_CSV);
 
         assert_eq!(parsed.action_labels, vec!["Call", "Fold"]);
 

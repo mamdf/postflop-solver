@@ -50,7 +50,8 @@ fn canonical_web_fixture_registry_covers_all_active_csvs() {
         .collect::<BTreeSet<_>>();
 
     assert_eq!(
-        registered_paths, active_paths,
+        registered_paths,
+        active_paths,
         "fixture registry must explicitly cover every active web CSV\n\nRegistered fixtures:\n{}",
         canonical_web_fixture_summary(),
     );

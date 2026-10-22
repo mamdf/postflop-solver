@@ -43,15 +43,25 @@ fn main() {
         ..small
     };
 
-    println!("compact_save benchmark (zstd feature: {})\n", cfg!(feature = "zstd"));
+    println!(
+        "compact_save benchmark (zstd feature: {})\n",
+        cfg!(feature = "zstd")
+    );
 
-    for (name, spec) in [("small", small), ("medium", medium), ("multi-betsize", multi)] {
+    for (name, spec) in [
+        ("small", small),
+        ("medium", medium),
+        ("multi-betsize", multi),
+    ] {
         run_spot(name, &spec);
     }
 }
 
 fn run_spot(name: &str, spec: &CanonicalWebCaseSpec) {
-    println!("=== {name} (flop {}, stack {}, bets {:?}) ===", spec.flop, spec.effective_stack, spec.bet_sizes);
+    println!(
+        "=== {name} (flop {}, stack {}, bets {:?}) ===",
+        spec.flop, spec.effective_stack, spec.bet_sizes
+    );
 
     // 32-bit reference: solve once, snapshot the root for the precision comparison.
     let mut reference = build_solved(spec, false);
@@ -72,7 +82,9 @@ fn run_spot(name: &str, spec: &CanonicalWebCaseSpec) {
             let path = std::env::temp_dir().join(format!(
                 "pfs_bench_{}_{name}_{alloc}_{mode_label}_{}.bin",
                 std::process::id(),
-                level.map(|l| l.to_string()).unwrap_or_else(|| "none".to_string())
+                level
+                    .map(|l| l.to_string())
+                    .unwrap_or_else(|| "none".to_string())
             ));
             let options = SaveOptions::navigable()
                 .with_storage_mode(mode)
@@ -101,8 +113,11 @@ fn run_spot(name: &str, spec: &CanonicalWebCaseSpec) {
             // models the strategy-only River buffer) and report the error vs. the measured
             // size, validating the estimator.
             let predicted = if mode == BoardState::River {
-                let est =
-                    estimate_river_save_size(game.storage_counts(), compression, DEFAULT_ZSTD_RATIO);
+                let est = estimate_river_save_size(
+                    game.storage_counts(),
+                    compression,
+                    DEFAULT_ZSTD_RATIO,
+                );
                 Some(if level.is_some() {
                     est.compressed_bytes
                 } else {
@@ -153,7 +168,10 @@ fn build_solved(spec: &CanonicalWebCaseSpec, compression: bool) -> PostFlopGame 
         merging_threshold: 0.1,
     };
     let card_config = CardConfig {
-        range: [spec.oop_range.parse().unwrap(), spec.ip_range.parse().unwrap()],
+        range: [
+            spec.oop_range.parse().unwrap(),
+            spec.ip_range.parse().unwrap(),
+        ],
         flop: flop_from_str(spec.flop).unwrap(),
         turn: NOT_DEALT,
         river: NOT_DEALT,
@@ -166,7 +184,11 @@ fn build_solved(spec: &CanonicalWebCaseSpec, compression: bool) -> PostFlopGame 
     game
 }
 
-fn measure_save(game: &mut PostFlopGame, path: &std::path::Path, options: &SaveOptions) -> (u64, f64) {
+fn measure_save(
+    game: &mut PostFlopGame,
+    path: &std::path::Path,
+    options: &SaveOptions,
+) -> (u64, f64) {
     let mut best_ms = f64::MAX;
     for _ in 0..3 {
         let start = Instant::now();
@@ -203,8 +225,17 @@ fn root_max_diff(reference: &CurrentNodeSnapshot, other: &CurrentNodeSnapshot) -
 fn print_header() {
     println!(
         "  {:<6} {:<6} {:<6} {:>10} {:>10} {:>6} {:>9} {:>9} {:>9} {:>11} {:>11}",
-        "alloc", "mode", "zstd", "bytes", "pred", "err%", "save ms", "load ms", "ram MB",
-        "eq maxdiff", "ev maxdiff"
+        "alloc",
+        "mode",
+        "zstd",
+        "bytes",
+        "pred",
+        "err%",
+        "save ms",
+        "load ms",
+        "ram MB",
+        "eq maxdiff",
+        "ev maxdiff"
     );
 }
 
@@ -220,11 +251,16 @@ fn print_row(
     ram_mb: Option<f64>,
     precision: Option<(f32, f32)>,
 ) {
-    let zstd = level.map(|l| format!("L{l}")).unwrap_or_else(|| "no".to_string());
+    let zstd = level
+        .map(|l| format!("L{l}"))
+        .unwrap_or_else(|| "no".to_string());
     let (pred, err) = match predicted {
         Some(pred) => (
             pred.to_string(),
-            format!("{:+.1}", (pred as f64 - bytes as f64) / bytes as f64 * 100.0),
+            format!(
+                "{:+.1}",
+                (pred as f64 - bytes as f64) / bytes as f64 * 100.0
+            ),
         ),
         None => ("-".to_string(), "-".to_string()),
     };

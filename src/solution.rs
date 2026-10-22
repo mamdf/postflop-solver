@@ -314,7 +314,12 @@ mod tests {
             std::process::id()
         ));
 
-        save_solution(&mut game, &path, &SaveOptions::navigable().with_memo("memo")).unwrap();
+        save_solution(
+            &mut game,
+            &path,
+            &SaveOptions::navigable().with_memo("memo"),
+        )
+        .unwrap();
         let (mut loaded, memo) = load_solution(&path, &LoadOptions::default()).unwrap();
         std::fs::remove_file(&path).unwrap();
 
@@ -353,10 +358,8 @@ mod tests {
         assert_eq!(estimate.compressed_bytes, estimate.uncompressed_bytes); // ratio 1.0
 
         // The uncompressed estimate tracks a real uncompressed River save.
-        let path = std::env::temp_dir().join(format!(
-            "pfs_compact_estimate_{}.bin",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("pfs_compact_estimate_{}.bin", std::process::id()));
         save_solution(&mut game, &path, &SaveOptions::navigable()).unwrap();
         let actual = std::fs::metadata(&path).unwrap().len();
         std::fs::remove_file(&path).unwrap();
@@ -435,10 +438,8 @@ mod tests {
     fn turn_mode_roundtrip_keeps_solved_and_node_input_ranges_works() {
         let mut game = solved_ones_flop_game();
 
-        let path = std::env::temp_dir().join(format!(
-            "pfs_tb_slice1_turn_rt_{}.bin",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("pfs_tb_slice1_turn_rt_{}.bin", std::process::id()));
 
         // Save as Turn mode (drops river nodes) and load back.
         save_solution(

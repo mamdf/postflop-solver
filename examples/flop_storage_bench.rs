@@ -41,9 +41,15 @@ const ZSTD_LEVEL: i32 = 12;
 const MS_PER_ITER_PER_M_ELEMENTS: f64 = 0.83;
 
 fn main() {
-    let smoke = std::env::var("FLOP_BENCH_SMOKE").map(|v| v == "1").unwrap_or(false);
-    let heavy = std::env::var("FLOP_BENCH_HEAVY").map(|v| v == "1").unwrap_or(false);
-    let counts_mode = std::env::var("FLOP_BENCH_COUNTS").map(|v| v == "1").unwrap_or(false);
+    let smoke = std::env::var("FLOP_BENCH_SMOKE")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    let heavy = std::env::var("FLOP_BENCH_HEAVY")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    let counts_mode = std::env::var("FLOP_BENCH_COUNTS")
+        .map(|v| v == "1")
+        .unwrap_or(false);
 
     if counts_mode {
         // Dry-run: build each parent (no allocate_memory), print counts + projection, exit.
@@ -83,7 +89,9 @@ fn main() {
 
 fn run_counts_mode(heavy: bool) {
     let rayon_threads = rayon::current_num_threads();
-    println!("FLOP_BENCH_COUNTS=1 — dry run: element counts + projected solve times (no solve/save)");
+    println!(
+        "FLOP_BENCH_COUNTS=1 — dry run: element counts + projected solve times (no solve/save)"
+    );
     println!(
         "host: rayon_threads={} | slope calibrated on Ryzen 5600X, full threads",
         rayon_threads
@@ -123,19 +131,15 @@ fn print_counts_for_spot(tag: &str, cfg: &SpotConfig) {
     let mem_gb = mem_unc as f64 / (1024.0_f64.powi(3));
     let total_elems = counts.total_elements();
 
-    let proj_secs = total_elems as f64 / 1_000_000.0
-        * MS_PER_ITER_PER_M_ELEMENTS
-        * cfg.parent_max_iters as f64
-        / 1000.0;
+    let proj_secs =
+        total_elems as f64 / 1_000_000.0 * MS_PER_ITER_PER_M_ELEMENTS * cfg.parent_max_iters as f64
+            / 1000.0;
 
     println!(
         "  storage_counts -> total_elements={} (num_storage={}, ip={}, chance={})",
         total_elems, counts.num_storage, counts.num_storage_ip, counts.num_storage_chance
     );
-    println!(
-        "  memory_usage   -> {:.3} GB uncompressed",
-        mem_gb
-    );
+    println!("  memory_usage   -> {:.3} GB uncompressed", mem_gb);
     println!(
         "  projected solve -> {:.1} s  ({} iters × {:.1}M elements × {:.2} ms/iter/M) [slope calibrated on Ryzen 5600X, full threads; rayon_threads={}]",
         proj_secs,
@@ -239,7 +243,11 @@ fn s2_config(smoke: bool) -> SpotConfig {
         parent_max_iters: parent_iters,
         parent_target_fraction: 0.005,
         turn_max_iters: turn_iters,
-        turn_targets: if smoke { vec![0.005] } else { vec![0.005, 0.001] },
+        turn_targets: if smoke {
+            vec![0.005]
+        } else {
+            vec![0.005, 0.001]
+        },
         icm: None,
     }
 }
@@ -331,8 +339,7 @@ fn run_s3(smoke: bool, any_failed: &mut bool) {
 fn s4_config() -> SpotConfig {
     SpotConfig {
         name: "S4-monster",
-        oop_range: "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s"
-            .to_string(),
+        oop_range: "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s".to_string(),
         ip_range: "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+"
             .to_string(),
         flop: "Td9d6h",
@@ -433,7 +440,9 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
         mem_comp as f64 / (1024.0 * 1024.0 * 1024.0)
     );
 
-    let heavy = std::env::var("FLOP_BENCH_HEAVY").map(|v| v == "1").unwrap_or(false);
+    let heavy = std::env::var("FLOP_BENCH_HEAVY")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     if mem_gb > 2.0 && !heavy {
         println!(
             "[{}] SKIP — projected RAM {:.1} GB > 2 GB; set FLOP_BENCH_HEAVY=1 to run.",
@@ -461,8 +470,7 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
     let parent_target = parent.target_exploitability_from_fraction(cfg.parent_target_fraction);
 
     let t_parent = Instant::now();
-    let parent_res =
-        solve_with_result(&mut parent, cfg.parent_max_iters, parent_target, false);
+    let parent_res = solve_with_result(&mut parent, cfg.parent_max_iters, parent_target, false);
     let parent_secs = t_parent.elapsed().as_secs_f64();
     println!(
         "parent solve -> {:.3}s | {} iters | expl {:.6} | target {:.6} | ICM={}",
@@ -473,10 +481,7 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
         parent.uses_tournament_icm()
     );
     check(
-        &format!(
-            "[{}] uses_tournament_icm() matches cfg",
-            cfg.name
-        ),
+        &format!("[{}] uses_tournament_icm() matches cfg", cfg.name),
         parent.uses_tournament_icm() == cfg.icm.is_some(),
         any_failed,
     );
@@ -485,8 +490,10 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
     // Skip uncompressed for S4 (too large).
     let skip_uncompressed = cfg.name == "S4-monster";
 
-    println!("\n  {:<8} {:<8} {:>12} {:>9} {:>12} {:>12}",
-        "mode", "zstd", "bytes", "save ms", "r/t ratio", "t/f ratio");
+    println!(
+        "\n  {:<8} {:<8} {:>12} {:>9} {:>12} {:>12}",
+        "mode", "zstd", "bytes", "save ms", "r/t ratio", "t/f ratio"
+    );
 
     let mut river_zstd_bytes: Option<u64> = None;
     let mut turn_zstd_bytes: Option<u64> = None;
@@ -559,8 +566,8 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
         save_solution(&mut parent, &flop_path, &opts).expect("save flop solution");
     }
     let t_load = Instant::now();
-    let (loaded_flop, _) = load_solution(&flop_path, &LoadOptions::default())
-        .expect("load flop solution");
+    let (loaded_flop, _) =
+        load_solution(&flop_path, &LoadOptions::default()).expect("load flop solution");
     let load_ms = t_load.elapsed().as_secs_f64() * 1000.0;
     let _ = fs::remove_file(&flop_path);
 
@@ -571,10 +578,7 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
         any_failed,
     );
     check(
-        &format!(
-            "[{}] loaded uses_tournament_icm() matches cfg",
-            cfg.name
-        ),
+        &format!("[{}] loaded uses_tournament_icm() matches cfg", cfg.name),
         loaded_flop.uses_tournament_icm() == cfg.icm.is_some(),
         any_failed,
     );
@@ -606,9 +610,13 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
             seam_base[0] > 0 && seam_base[1] > 0,
             "[{}] FAIL: ICM base_contribution must be > 0 for both seats at the seam \
              (invested line required); got seam_base={:?}",
+            cfg.name,
+            seam_base
+        );
+        println!(
+            "PASS  [{}] S3 seam base_contribution {:?} > 0 (ICM offset is load-bearing)",
             cfg.name, seam_base
         );
-        println!("PASS  [{}] S3 seam base_contribution {:?} > 0 (ICM offset is load-bearing)", cfg.name, seam_base);
     }
 
     // Extract ranges at the chance node (board len 3, BEFORE dealing any card).
@@ -621,7 +629,10 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
     let ranges_bit_equal = parent_ranges[0].raw_data() == loaded_ranges[0].raw_data()
         && parent_ranges[1].raw_data() == loaded_ranges[1].raw_data();
     check(
-        &format!("[{}] node_input_ranges bit-equal (loaded vs in-memory)", cfg.name),
+        &format!(
+            "[{}] node_input_ranges bit-equal (loaded vs in-memory)",
+            cfg.name
+        ),
         ranges_bit_equal,
         any_failed,
     );
@@ -653,8 +664,10 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
     // M2: print subgame shape (sizings + seam pot/stack/SPR) before the timing table.
     println!(
         "\n  subgame shape: turn_bets={:?}  turn_raise={:?}  river_bets={:?}  river_raise={:?}",
-        cfg.subgame_turn_bets, cfg.subgame_turn_raise,
-        cfg.subgame_river_bets, cfg.subgame_river_raise
+        cfg.subgame_turn_bets,
+        cfg.subgame_turn_raise,
+        cfg.subgame_river_bets,
+        cfg.subgame_river_raise
     );
     println!(
         "  seam: pot={}  stack={}  SPR={:.2}  (rayon_threads={}) [slope calibrated on Ryzen 5600X, full threads]",
@@ -662,15 +675,24 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
         rayon::current_num_threads()
     );
 
-    println!("\n  {:<12} {:>10} {:>10} {:>8} {:>8} {:>10}",
-        "target%", "solve s", "total s", "iters", "expl", "mem MB");
+    println!(
+        "\n  {:<12} {:>10} {:>10} {:>8} {:>8} {:>10}",
+        "target%", "solve s", "total s", "iters", "expl", "mem MB"
+    );
 
     let mut last_turn_game: Option<PostFlopGame> = None;
 
     for &fraction in &cfg.turn_targets {
         // M1: time BOTH solve-only and total (build+ICM-install+allocate+solve).
         let t_total = Instant::now();
-        let mut tg = build_turn_subgame(cfg, flop, turn_card, &loaded_ranges, parent_pot, parent_stack);
+        let mut tg = build_turn_subgame(
+            cfg,
+            flop,
+            turn_card,
+            &loaded_ranges,
+            parent_pot,
+            parent_stack,
+        );
 
         // For ICM: install config with base_contribution = parent.total_bet_amount() at the seam.
         if let Some(icm) = &cfg.icm {
@@ -716,7 +738,10 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
         // Walk: available turn action → river deal → first river action node.
         let has_residency = check_river_residency(&mut tg);
         check(
-            &format!("[{}] rivers resident in solved turn game (no extra solve needed)", cfg.name),
+            &format!(
+                "[{}] rivers resident in solved turn game (no extra solve needed)",
+                cfg.name
+            ),
             has_residency,
             any_failed,
         );
@@ -738,9 +763,33 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
 
         // Build three games: ga/gb use loaded_ranges (identical seeds); gc uses parent_ranges
         // (memory-seeded). build_and_install_turn now uses the real seam base (not [0,0]).
-        let mut ga = build_and_install_turn(cfg, flop, turn_card, &loaded_ranges, parent_pot, parent_stack, seam_base);
-        let mut gb = build_and_install_turn(cfg, flop, turn_card, &loaded_ranges, parent_pot, parent_stack, seam_base);
-        let mut gc = build_and_install_turn(cfg, flop, turn_card, &parent_ranges, parent_pot, parent_stack, seam_base);
+        let mut ga = build_and_install_turn(
+            cfg,
+            flop,
+            turn_card,
+            &loaded_ranges,
+            parent_pot,
+            parent_stack,
+            seam_base,
+        );
+        let mut gb = build_and_install_turn(
+            cfg,
+            flop,
+            turn_card,
+            &loaded_ranges,
+            parent_pot,
+            parent_stack,
+            seam_base,
+        );
+        let mut gc = build_and_install_turn(
+            cfg,
+            flop,
+            turn_card,
+            &parent_ranges,
+            parent_pot,
+            parent_stack,
+            seam_base,
+        );
 
         let dtarget_a = ga.target_exploitability_from_fraction(dtarget_fraction);
         let dtarget_c = gc.target_exploitability_from_fraction(dtarget_fraction);
@@ -775,10 +824,16 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
         println!(
             "determinism -> A/B identical={} (result_eq={} postplay_eq={} iters {}/{}) \
              | loaded==memory={} (result_eq={} postplay_eq={} iters {}/{})",
-            ab_identical, ab_result_eq, ab_postplay,
-            ra.num_iterations, rb.num_iterations,
-            ac_identical, ac_result_eq, ac_postplay,
-            ra.num_iterations, rc.num_iterations
+            ab_identical,
+            ab_result_eq,
+            ab_postplay,
+            ra.num_iterations,
+            rb.num_iterations,
+            ac_identical,
+            ac_result_eq,
+            ac_postplay,
+            ra.num_iterations,
+            rc.num_iterations
         );
     }
 
@@ -797,7 +852,10 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
         let _ = fs::remove_file(&flop_guard_path);
 
         navigate_to_invested_turn_seam(&mut guard_game);
-        assert!(guard_game.is_chance_node(), "must be at chance node for guard test");
+        assert!(
+            guard_game.is_chance_node(),
+            "must be at chance node for guard test"
+        );
 
         // Silent panic hook so the expected panic doesn't print to stderr.
         let prev_hook = panic::take_hook();
@@ -850,9 +908,8 @@ fn build_game(cfg: &SpotConfig, flop: [Card; 3], compression: bool) -> PostFlopG
         .unwrap_or_else(|_| BetSizeOptions::try_from(("50%", "")).unwrap());
     let turn_bets = BetSizeOptions::try_from((cfg.turn_bets.as_str(), cfg.turn_raise.as_str()))
         .unwrap_or_else(|_| BetSizeOptions::try_from(("50%", "")).unwrap());
-    let river_bets =
-        BetSizeOptions::try_from((cfg.river_bets.as_str(), cfg.river_raise.as_str()))
-            .unwrap_or_else(|_| BetSizeOptions::try_from(("50%", "")).unwrap());
+    let river_bets = BetSizeOptions::try_from((cfg.river_bets.as_str(), cfg.river_raise.as_str()))
+        .unwrap_or_else(|_| BetSizeOptions::try_from(("50%", "")).unwrap());
 
     let tree_config = TreeConfig {
         initial_state: BoardState::Flop,
@@ -910,9 +967,11 @@ fn build_turn_subgame(
     stack: i32,
 ) -> PostFlopGame {
     // Use subgame-specific sizings (may differ from parent, e.g. S3 fat subgame).
-    let turn_bets =
-        BetSizeOptions::try_from((cfg.subgame_turn_bets.as_str(), cfg.subgame_turn_raise.as_str()))
-            .unwrap_or_else(|_| BetSizeOptions::try_from(("50%", "")).unwrap());
+    let turn_bets = BetSizeOptions::try_from((
+        cfg.subgame_turn_bets.as_str(),
+        cfg.subgame_turn_raise.as_str(),
+    ))
+    .unwrap_or_else(|_| BetSizeOptions::try_from(("50%", "")).unwrap());
     let river_bets = BetSizeOptions::try_from((
         cfg.subgame_river_bets.as_str(),
         cfg.subgame_river_raise.as_str(),

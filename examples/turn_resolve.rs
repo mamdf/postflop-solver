@@ -135,7 +135,10 @@ fn main() {
 
     // The finer tree exposes more sizings at the turn root than the coarse flop
     // solve ever did (a single 50% bet vs. 33% / 75% / 125% / all-in here).
-    println!("Turn root actions (OOP): {:?}", turn_game.available_actions());
+    println!(
+        "Turn root actions (OOP): {:?}",
+        turn_game.available_actions()
+    );
 
     // sanity: every hand carried over still resolves to a normalized strategy
     turn_game.cache_normalized_weights();

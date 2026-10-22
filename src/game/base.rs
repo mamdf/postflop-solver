@@ -1999,12 +1999,7 @@ mod icm_offset_tests {
             // FULL: the whole hand lives in this tree; nothing was invested before it.
             game.tree_config.starting_pot = parent_pot;
             let full = game
-                .tournament_icm_values_for_terminal(
-                    &config,
-                    [p + rc0, p + rc1],
-                    [0, 0],
-                    winner,
-                )
+                .tournament_icm_values_for_terminal(&config, [p + rc0, p + rc1], [0, 0], winner)
                 .unwrap();
 
             // REROOT: the river is re-rooted; starting_pot already contains the pre-river pot (2P),
@@ -2037,12 +2032,7 @@ mod icm_offset_tests {
         for winner in [Some(0usize), Some(1usize), None] {
             game.tree_config.starting_pot = parent_pot;
             let full = game
-                .tournament_icm_values_for_terminal(
-                    &config,
-                    [p + rc0, p + rc1],
-                    [0, 0],
-                    winner,
-                )
+                .tournament_icm_values_for_terminal(&config, [p + rc0, p + rc1], [0, 0], winner)
                 .unwrap();
 
             // Re-rooted starting_pot but WITHOUT the base offset: the bug.
@@ -2132,8 +2122,9 @@ mod icm_offset_tests {
             oop_seat: 0,
             ip_seat: 1,
         };
-        let baseline =
-            game.tournament_icm_values_for_terminal(&config, [0, 0], [0, 0], None).unwrap();
+        let baseline = game
+            .tournament_icm_values_for_terminal(&config, [0, 0], [0, 0], None)
+            .unwrap();
         let baseline_oop = baseline[config.oop_seat];
         let baseline_ip = baseline[config.ip_seat];
 
