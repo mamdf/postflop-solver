@@ -7,8 +7,7 @@ use std::time::Instant;
 // Flop-only storage feasibility — per-mode artifact sizes and turn re-solve cost.
 //
 // Measures the disk footprint of flop-mode saves vs turn/river and the latency of
-// on-demand turn re-solves seeded from a loaded flop artifact. Implements the
-// pre-registered GO/NO-GO decision criteria from docs/flop-only-feasibility.md.
+// on-demand turn re-solves seeded from a loaded flop artifact.
 //
 // Usage:
 //   # Dry-run — print element counts + projected solve times, no solving/saving:

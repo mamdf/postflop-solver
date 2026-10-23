@@ -25,7 +25,7 @@ use std::time::Instant;
 //   6. Secondary: time a TURN re-solve from flop ranges, for the cost-curve
 //      contrast (turn-from-flop is the expensive case Technique B must AVOID).
 //
-// CRITICAL CAVEATS (see docs/technique-b-feasibility.md):
+// CRITICAL CAVEATS:
 //   - A river-rooted game runs SINGLE-THREAD: enable_parallelization() is false
 //     once river != NOT_DEALT (src/game/node.rs). So this measures the true
 //     single-thread cost; rayon does not help the river re-solve.

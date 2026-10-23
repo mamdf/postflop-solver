@@ -44,8 +44,9 @@ Notes:
 - River mode is the only mode that keeps the whole tree navigable. Its load cost is the
   recompute, not disk I/O — for large trees that recompute dominates load time.
 - Turn/Flop physically drop deeper nodes; navigating into them hits the storage-mode guard
-  in `play` and panics (`"Storage mode is not compatible"`). Use them only when you will
-  never need deeper streets.
+  in `play` and panics (`"Storage mode is not compatible"`). `postflop-solver-api` serves
+  them anyway: it re-solves the dropped turn (Flop mode) or river (Turn mode) on demand and
+  caches it per session.
 
 > [!NOTE]
 > **Tournament-ICM solves are supported in every mode.** A game solved with
@@ -83,8 +84,8 @@ Representative numbers (small spot, flop `Ac9d2s`, 24bb; from `benches/compact_s
 
 Guidance: **solve in 32-bit float for accuracy, save River + zstd for the smallest fully
 navigable artifact.** River f32 is lossless on every queryable value (chipEV, `bubble_factor`,
-and tournament-ICM alike); u16 adds a small EV error (equity is unaffected). Reach for
-Turn/Flop only to archive a street you will not revisit. The "lossless" numbers below are
+and tournament-ICM alike); u16 adds a small EV error (equity is unaffected). Turn/Flop
+are far smaller when the consumer re-solves deeper streets on navigation. The "lossless" numbers below are
 chipEV.
 
 ## Predicting save size without solving
