@@ -251,6 +251,14 @@ fn profile_small_chip_sizes() {
     assert_eq!(resolve_line(&mut game, &line("B:2"), &opts), Ok(vec![1]));
     assert_eq!(resolve_line(&mut game, &line("B:3.2"), &opts), Ok(vec![2]));
     assert!(resolve_line(&mut game, &line("B:2.5"), &opts).is_err()); // equally close
+    let actions = game.available_actions();
+    assert_eq!(match_action(&actions, ActionKey::Check, &opts), Some(0));
+    assert_eq!(
+        match_action(&actions, ActionKey::Raise(3.0), &opts),
+        Some(2)
+    );
+    assert_eq!(match_action(&actions, ActionKey::Fold, &opts), None);
+    assert_eq!(match_action(&actions, ActionKey::Bet(2.5), &opts), None);
 
     // a zero-mass source action colliding with one of ours is harmless; with mass, mismatched
     let root = profile.node_strategy(profile.find(&[]).unwrap());

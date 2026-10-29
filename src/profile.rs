@@ -471,6 +471,12 @@ fn match_actions(
         .collect()
 }
 
+/// Index of the action in `available` matching `key` (see [`MatchOptions`]; `amount_scale`
+/// defaults to 1.0), or `None` if none or two equally close match.
+pub fn match_action(available: &[Action], key: ActionKey, opts: &MatchOptions) -> Option<usize> {
+    match_actions(available, &[key], opts.amount_scale.unwrap_or(1.0), opts)[0]
+}
+
 fn unscale(key: ActionKey, scale: f64) -> ActionKey {
     match key {
         ActionKey::Bet(x) => ActionKey::Bet(x / scale),
@@ -841,7 +847,6 @@ pub fn resolve_line(
         return Err("Game must have memory allocated with full storage".into());
     }
     game.back_to_root();
-    let scale = opts.amount_scale.unwrap_or(1.0);
     let mut history = Vec::with_capacity(line.len());
     for (k, step) in line.iter().enumerate() {
         let at = || format!("{:?}", line_key(&line[..=k]));
@@ -856,7 +861,7 @@ pub fn resolve_line(
                 card as usize
             }
             LineStep::Action(key) if !game.is_chance_node() => {
-                match match_actions(&game.available_actions(), &[key], scale, opts)[0] {
+                match match_action(&game.available_actions(), key, opts) {
                     Some(i) => i,
                     None => return Err(format!("No unique matching action: {}", at())),
                 }
