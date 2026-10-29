@@ -83,6 +83,22 @@ release-optimized** — the issue is duration + full CPU, not opt-level. Benches
 are long; run them deliberately with a timeout/background, and do **not** cap
 their cores (a capped bench is not representative).
 
+## Node locking (strategy locking) — it EXISTS
+
+Not to be confused with concurrency locks (`mutex_like.rs`). On `PostFlopGame`:
+`lock_current_strategy` / `unlock_current_strategy` / `current_locking_strategy`
+(`src/game/interpreter.rs`; example `examples/node_locking.rs`; tests
+`node_locking*` in `src/game/tests.rs`).
+
+- Per current node, per hand: slice of `#actions * #hands`; a hand whose values
+  are all ≤ 0 stays free (partial lock). Call after `allocate_memory`, before
+  solving. There is no "lock whole range/subtree" helper: navigate and lock each node.
+- Locks persist in `.pfs` saves. `postflop-solver-api` does not expose them.
+- Locks also bind the best response: with locked nodes, `compute_exploitability`
+  is relative to the restricted game. To measure a foreign strategy for player A,
+  lock every A node, read B's best-response EV from `compute_mes_ev()[B]`, and
+  subtract B's equilibrium value from an unlocked solve.
+
 ## Cross-repo consumers
 
 Other poker-stack repos may depend on this one. Before changing its exposed
