@@ -93,7 +93,8 @@ Not to be confused with concurrency locks (`mutex_like.rs`). On `PostFlopGame`:
 - Per current node, per hand: slice of `#actions * #hands`; a hand whose values
   are all ≤ 0 stays free (partial lock). Call after `allocate_memory`, before
   solving. There is no "lock whole range/subtree" helper: navigate and lock each node.
-- Locks persist in `.pfs` saves. `postflop-solver-api` does not expose them.
+- Locks persist in `.pfs` saves. Over HTTP (a few nodes, by range and action
+  token): `postflop-solver-api` README "Node locking (for agents)"; in its UI: the lock editor.
 - Locks also bind the best response: with locked nodes, `compute_exploitability`
   is relative to the restricted game.
 - Isomorphic turn/river cards alias one node: lock only via the representative
