@@ -13,15 +13,21 @@ bincode = { version = "2.0.1", optional = true }
 once_cell = "1.18.0"
 rayon = { version = "1.8.0", optional = true }
 regex = "1.9.6"
+serde_json = { version = "1.0", optional = true }
 zstd = { version = "0.12.4", optional = true, default-features = false }
 
 [features]
 default = ["bincode", "rayon"]
 custom-alloc = []
 rayon = ["dep:rayon", "zstd?/zstdmt"]
+profile-io = ["dep:serde_json"]
 
 [dev-dependencies]
 criterion = "0.5.1"
+
+[[example]]
+name = "profile_eval"
+required-features = ["profile-io"]
 
 [[bench]]
 name = "web_case"

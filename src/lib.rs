@@ -35,6 +35,9 @@
 //! - `bincode`: Uses [bincode] crate (2.0.0-rc.3) to serialize and deserialize the `PostFlopGame` struct.
 //!   This feature is required to save and load the game tree.
 //!   Enabled by default.
+//! - `profile-io`: Reads and writes [`profile::StrategyProfile`] directories (`profile::dir`)
+//!   with [serde_json].
+//!   Disabled by default.
 //! - `custom-alloc`: Uses custom memory allocator in solving process (only available in nightly Rust).
 //!   It significantly reduces the number of calls of the default allocator,
 //!   so it is recommended to use this feature when the default allocator is not so efficient.
@@ -48,6 +51,7 @@
 //!   Disabled by default.
 //!
 //! [bincode]: https://github.com/bincode-org/bincode
+//! [serde_json]: https://github.com/serde-rs/json
 //! [rayon]: https://github.com/rayon-rs/rayon
 //! [zstd]: https://github.com/gyscos/zstd-rs
 
@@ -73,6 +77,7 @@ mod hand_table;
 mod icm;
 mod interface;
 mod mutex_like;
+pub mod profile;
 mod range;
 mod sliceop;
 mod solver;

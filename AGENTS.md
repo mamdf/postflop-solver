@@ -9,14 +9,14 @@ below **before** running any `cargo test` / `cargo bench` in this repo.
 **1. As an automated agent, run the suite via the capped recipe — never raw `cargo test`:**
 
 ```sh
-just test-agent          # = RAYON_NUM_THREADS=4 RUST_TEST_THREADS=2 cargo test --features zstd
+just test-agent          # = RAYON_NUM_THREADS=4 RUST_TEST_THREADS=2 cargo test --features zstd,profile-io
 just test-one <name>     # single test under the same cap, e.g. just test-one kuhn
 ```
 
 If `just` is unavailable, use the raw equivalent:
 
 ```sh
-RAYON_NUM_THREADS=4 RUST_TEST_THREADS=2 cargo test --features zstd
+RAYON_NUM_THREADS=4 RUST_TEST_THREADS=2 cargo test --features zstd,profile-io
 ```
 
 Why the cap: Rayon defaults to **all 12 logical cores** and the test harness
@@ -95,9 +95,19 @@ Not to be confused with concurrency locks (`mutex_like.rs`). On `PostFlopGame`:
   solving. There is no "lock whole range/subtree" helper: navigate and lock each node.
 - Locks persist in `.pfs` saves. `postflop-solver-api` does not expose them.
 - Locks also bind the best response: with locked nodes, `compute_exploitability`
-  is relative to the restricted game. To measure a foreign strategy for player A,
-  lock every A node, read B's best-response EV from `compute_mes_ev()[B]`, and
-  subtract B's equilibrium value from an unlocked solve.
+  is relative to the restricted game.
+- Isomorphic turn/river cards alias one node: lock only via the representative
+  cards of `available_actions()` (`Action::Chance`), or the last write wins.
+
+### Evaluating another solver's strategy (`src/profile.rs`)
+
+- API and matching rules: rustdoc of `src/profile.rs`; file format: `src/profile/dir.rs`.
+  CLI: `cargo run --release --features profile-io --example profile_eval -- export|eval
+  <spec.json> <dir>`.
+- Line amounts are **raise-to on the current street, in chips** (as in `Action`).
+- Locks bind the locked player's best response, so `evaluate_source` locks one side
+  at a time for each best response.
+- Big dumps are GBs: run deliberately, full power, in the background.
 
 ## Cross-repo consumers
 

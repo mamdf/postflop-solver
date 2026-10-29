@@ -609,6 +609,12 @@ impl PostFlopGame {
         }
     }
 
+    /// Whether the memory is allocated and every street is stored (not a truncated load).
+    #[inline]
+    pub(crate) fn has_full_storage(&self) -> bool {
+        self.state >= State::MemoryAllocated && self.storage_mode == BoardState::River
+    }
+
     /// Allocates the memory.
     pub fn allocate_memory(&mut self, enable_compression: bool) {
         if self.state <= State::Uninitialized {

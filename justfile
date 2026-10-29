@@ -7,17 +7,17 @@ default:
 # Deliberately NOT a global cap (would throttle the server/benches) — see CLAUDE.md.
 AGENT_CORES := "4"
 
-# Full test suite at full speed for humans / CI (zstd enables compact-save tests).
+# Full test suite at full speed for humans / CI (zstd: compact-save tests, profile-io: profile dirs).
 test:
-	cargo test --features zstd
+	cargo test --features zstd,profile-io
 
 # Subagent test run: caps Rayon + harness so a background agent stays responsive.
 test-agent:
-	RAYON_NUM_THREADS={{AGENT_CORES}} RUST_TEST_THREADS=2 cargo test --features zstd
+	RAYON_NUM_THREADS={{AGENT_CORES}} RUST_TEST_THREADS=2 cargo test --features zstd,profile-io
 
 # Single test by name under the agent cap, e.g. `just test-one kuhn`.
 test-one NAME:
-	RAYON_NUM_THREADS={{AGENT_CORES}} RUST_TEST_THREADS=2 cargo test --features zstd {{NAME}}
+	RAYON_NUM_THREADS={{AGENT_CORES}} RUST_TEST_THREADS=2 cargo test --features zstd,profile-io {{NAME}}
 
 # Heavy #[ignore]d solver presets (minutes, several GB RAM). Deliberate only.
 test-heavy:

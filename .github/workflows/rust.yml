@@ -12,4 +12,4 @@ jobs:
     - name: Check formatting
       run: cargo fmt --all --check
     - name: Run tests
-      run: cargo test --features zstd
+      run: cargo test --features zstd,profile-io
