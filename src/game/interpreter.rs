@@ -1028,34 +1028,9 @@ impl PostFlopGame {
 
         let mut node = self.node();
         let player = self.current_player();
-        let num_actions = node.num_actions();
         let num_hands = self.num_private_hands(player);
-
-        if strategy.len() != num_actions * num_hands {
-            panic!("Invalid strategy length");
-        }
-
-        let mut locking = vec![-1.0; num_actions * num_hands];
-
-        for hand in 0..num_hands {
-            let mut sum = 0.0;
-            let mut lock = false;
-
-            for action in 0..num_actions {
-                let freq = strategy[action * num_hands + hand];
-                if freq > 0.0 {
-                    sum += freq as f64;
-                    lock = true;
-                }
-            }
-
-            if lock {
-                for action in 0..num_actions {
-                    let freq = strategy[action * num_hands + hand].max(0.0) as f64;
-                    locking[action * num_hands + hand] = (freq / sum) as f32;
-                }
-            }
-        }
+        let mut locking = strategy.to_vec();
+        normalize_locking(&mut locking, node.num_actions(), num_hands);
 
         locking.chunks_exact_mut(num_hands).for_each(|chunk| {
             self.apply_swap(chunk, player, true);
@@ -1064,6 +1039,99 @@ impl PostFlopGame {
         node.is_locked = true;
         let index = self.node_index(&node);
         self.locking_strategy.insert(index, locking);
+    }
+
+    /// Locks the strategy of the decision node reached by `history` from the root, without moving
+    /// the current node and in *O*(#(actions) * #(private hands)), unlike [`apply_history`]
+    /// followed by [`lock_current_strategy`], whose [`play`] calls cost a strategy evaluation each.
+    ///
+    /// Same `strategy` contract as [`lock_current_strategy`]; the vector is normalized in place and
+    /// kept, so locking a large tree holds one copy of its locks. A chance step of `history` must be
+    /// a card listed by [`available_actions`] (no isomorphic suit swap is applied).
+    ///
+    /// Panics if the memory is not yet allocated, the game is already solved, or `history` does not
+    /// reach a decision node that way.
+    ///
+    /// [`apply_history`]: #method.apply_history
+    /// [`lock_current_strategy`]: #method.lock_current_strategy
+    /// [`play`]: #method.play
+    /// [`available_actions`]: #method.available_actions
+    pub fn lock_strategy_at(&mut self, history: &[usize], mut strategy: Vec<f32>) {
+        if self.state < State::MemoryAllocated {
+            panic!("Memory is not allocated");
+        }
+
+        if self.state == State::Solved {
+            panic!("Game is already solved");
+        }
+
+        let index = self.decision_node_index(history).expect("Invalid history");
+        let mut node = self.node_arena[index].lock();
+        let num_hands = self.num_private_hands(node.player());
+        normalize_locking(&mut strategy, node.num_actions(), num_hands);
+        node.is_locked = true;
+        self.locking_strategy.insert(index, strategy);
+    }
+
+    /// Enables or disables every lock on `player`'s nodes. A disabled lock is kept but not
+    /// applied (the node plays as unlocked) until it is enabled again, so a caller can switch
+    /// between locked players without re-locking.
+    pub fn set_player_locks_enabled(&mut self, player: usize, enabled: bool) {
+        for &index in self.locking_strategy.keys() {
+            let mut node = self.node_arena[index].lock();
+            if node.player() == player {
+                node.is_locked = enabled;
+            }
+        }
+    }
+
+    /// Unlocks every node in *O*(#(locked nodes)).
+    ///
+    /// Panics if the memory is not yet allocated or the game is already solved.
+    pub fn unlock_all_strategies(&mut self) {
+        if self.state < State::MemoryAllocated {
+            panic!("Memory is not allocated");
+        }
+
+        if self.state == State::Solved {
+            panic!("Game is already solved");
+        }
+
+        for &index in self.locking_strategy.keys() {
+            self.node_arena[index].lock().is_locked = false;
+        }
+        self.locking_strategy.clear();
+    }
+
+    /// The arena index of the decision node reached by `history` from the root, walking the tree
+    /// structure only (see [`lock_strategy_at`] for the chance-step rule).
+    ///
+    /// [`lock_strategy_at`]: #method.lock_strategy_at
+    fn decision_node_index(&self, history: &[usize]) -> Option<usize> {
+        let mut index = 0;
+        for &action in history {
+            let node = self.node_arena[index].lock();
+            if node.is_terminal() || node.amount == self.tree_config.effective_stack {
+                return None;
+            }
+            let child = if node.is_chance() {
+                let card = Card::try_from(action).ok()?;
+                node.children()
+                    .iter()
+                    .position(|c| c.lock().prev_action == Action::Chance(card))?
+            } else if action < node.num_actions() {
+                action
+            } else {
+                return None;
+            };
+            index = self.node_index(&node.play(child));
+        }
+        let node = self.node_arena[index].lock();
+        if node.is_terminal() || node.is_chance() || node.amount == self.tree_config.effective_stack
+        {
+            return None;
+        }
+        Some(index)
     }
 
     /// Unlocks the strategy of the current node.
@@ -1090,10 +1158,6 @@ impl PostFlopGame {
         }
 
         let mut node = self.node();
-        if !node.is_locked {
-            return;
-        }
-
         node.is_locked = false;
         let index = self.node_index(&node);
         self.locking_strategy.remove(&index);
@@ -1101,7 +1165,7 @@ impl PostFlopGame {
 
     /// Returns the locking strategy of the current node.
     ///
-    /// If the current node is not locked, `None` is returned.
+    /// If the current node is not locked (or its lock is disabled), `None` is returned.
     ///
     /// Otherwise, returns a reference to the vector of the length of
     /// `#(actions) * #(private hands)`.
@@ -1122,7 +1186,12 @@ impl PostFlopGame {
             panic!("Chance node is not allowed");
         }
 
-        let index = self.node_index(&self.node());
+        let node = self.node();
+        if !node.is_locked {
+            return None;
+        }
+
+        let index = self.node_index(&node);
         self.locking_strategy.get(&index).map(|s| {
             let mut ret = s.clone();
             let player = self.current_player();
@@ -1150,39 +1219,12 @@ impl PostFlopGame {
     /// Assigns zero weights to the hands that are not possible.
     pub(super) fn assign_zero_weights(&mut self) {
         if self.bunching_num_dead_cards == 0 {
-            let mut board_mask: u64 = 0;
-            if self.turn != NOT_DEALT {
-                board_mask |= 1 << self.turn;
-            }
-            if self.river != NOT_DEALT {
-                board_mask |= 1 << self.river;
-            }
-
-            for player in 0..2 {
-                let mut dead_mask: u64 = (1 << 52) - 1;
-
-                for &(c1, c2) in &self.private_cards[player ^ 1] {
-                    let mask: u64 = (1 << c1) | (1 << c2);
-                    if mask & board_mask == 0 {
-                        dead_mask &= mask;
-                    }
-                    if dead_mask == 0 {
-                        break;
-                    }
-                }
-
-                dead_mask |= board_mask;
-
-                self.private_cards[player]
-                    .iter()
-                    .zip(self.weights[player].iter_mut())
-                    .for_each(|(&(c1, c2), w)| {
-                        let mask: u64 = (1 << c1) | (1 << c2);
-                        if mask & dead_mask != 0 {
-                            *w = 0.0;
-                        }
-                    });
-            }
+            zero_dead_weights(
+                &self.private_cards,
+                self.turn,
+                self.river,
+                &mut self.weights,
+            );
         } else {
             for player in 0..2 {
                 let node = self.node();
@@ -1381,5 +1423,78 @@ impl PostFlopGame {
                 })
                 .collect()
         }
+    }
+}
+
+/// Turns `strategy` (`#(actions) * #(private hands)`, action-major) into its locking table entry:
+/// a hand with positive mass is normalized to sum 1, any other hand becomes `-1.0` (unlocked).
+fn normalize_locking(strategy: &mut [f32], num_actions: usize, num_hands: usize) {
+    if strategy.len() != num_actions * num_hands {
+        panic!("Invalid strategy length");
+    }
+
+    for hand in 0..num_hands {
+        let mut sum = 0.0;
+        let mut lock = false;
+
+        for action in 0..num_actions {
+            let freq = strategy[action * num_hands + hand];
+            if freq > 0.0 {
+                sum += freq as f64;
+                lock = true;
+            }
+        }
+
+        for action in 0..num_actions {
+            let slot = &mut strategy[action * num_hands + hand];
+            *slot = if lock {
+                (slot.max(0.0) as f64 / sum) as f32
+            } else {
+                -1.0
+            };
+        }
+    }
+}
+
+/// Zeroes the weights of the hands that the dealt `turn`/`river` (or `NOT_DEALT`) block, and of
+/// the hands holding a card every live opponent hand holds (no bunching effect).
+pub(super) fn zero_dead_weights(
+    private_cards: &[Vec<(Card, Card)>; 2],
+    turn: Card,
+    river: Card,
+    weights: &mut [Vec<f32>; 2],
+) {
+    let mut board_mask: u64 = 0;
+    if turn != NOT_DEALT {
+        board_mask |= 1 << turn;
+    }
+    if river != NOT_DEALT {
+        board_mask |= 1 << river;
+    }
+
+    for player in 0..2 {
+        let mut dead_mask: u64 = (1 << 52) - 1;
+
+        for &(c1, c2) in &private_cards[player ^ 1] {
+            let mask: u64 = (1 << c1) | (1 << c2);
+            if mask & board_mask == 0 {
+                dead_mask &= mask;
+            }
+            if dead_mask == 0 {
+                break;
+            }
+        }
+
+        dead_mask |= board_mask;
+
+        private_cards[player]
+            .iter()
+            .zip(weights[player].iter_mut())
+            .for_each(|(&(c1, c2), w)| {
+                let mask: u64 = (1 << c1) | (1 << c2);
+                if mask & dead_mask != 0 {
+                    *w = 0.0;
+                }
+            });
     }
 }

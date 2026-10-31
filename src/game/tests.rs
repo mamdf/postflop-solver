@@ -1850,3 +1850,100 @@ fn assert_reach_survives_isomorphism(flop: &str) {
         "extracted ranges must be non-empty",
     );
 }
+
+/// `NodeCursor` and the history-addressed, switchable locks give the interpreter's own bits: at every
+/// decision node of a turn game (one river chance layer), the cursor's strategy and weights equal
+/// the game's after `apply_history`, and `lock_strategy_at` stores what `lock_current_strategy`
+/// stores.
+#[test]
+fn node_cursor_and_lock_strategy_at_match_the_interpreter() {
+    let card_config = CardConfig {
+        range: [
+            "AA,KK,QQ,AK,AQ,T9s".parse().unwrap(),
+            "JJ,TT,99,AJ,KQ,87s".parse().unwrap(),
+        ],
+        flop: flop_from_str("Td9d6h").unwrap(),
+        turn: card_from_str("Qc").unwrap(),
+        ..Default::default()
+    };
+    let tree_config = TreeConfig {
+        initial_state: BoardState::Turn,
+        starting_pot: 60,
+        effective_stack: 200,
+        turn_bet_sizes: [
+            ("50%", "").try_into().unwrap(),
+            ("50%", "").try_into().unwrap(),
+        ],
+        river_bet_sizes: [
+            ("50%", "").try_into().unwrap(),
+            ("50%", "").try_into().unwrap(),
+        ],
+        ..Default::default()
+    };
+    let action_tree = ActionTree::new(tree_config).unwrap();
+    let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+    game.allocate_memory(false);
+    solve(&mut game, 20, 0.0, false);
+
+    // (history, player, strategy, weights) at every decision node, by cursor.
+    type Seen = (Vec<usize>, usize, Vec<f32>, [Vec<f32>; 2]);
+    fn walk(cursor: NodeCursor<'_>, seen: &mut Vec<Seen>) {
+        if cursor.is_terminal_node() {
+            return;
+        }
+        if !cursor.is_chance_node() {
+            seen.push((
+                cursor.history().to_vec(),
+                cursor.current_player(),
+                cursor.strategy(),
+                [cursor.weights(0).to_vec(), cursor.weights(1).to_vec()],
+            ));
+        }
+        for (i, action) in cursor.available_actions().iter().enumerate() {
+            let step = match action {
+                Action::Chance(card) => *card as usize,
+                _ => i,
+            };
+            walk(cursor.play(step), seen);
+        }
+    }
+    let mut seen = Vec::new();
+    walk(game.root_cursor(), &mut seen);
+    assert!(
+        seen.iter().any(|(h, ..)| h.len() > 3),
+        "the walk must cross the river chance layer"
+    );
+
+    // A solved game refuses locks, so they go to an unsolved twin of the same tree.
+    let mut lock_game = PostFlopGame::with_config(
+        game.card_config().clone(),
+        ActionTree::new(game.tree_config().clone()).unwrap(),
+    )
+    .unwrap();
+    lock_game.allocate_memory(false);
+    for (history, player, strategy, weights) in &seen {
+        game.apply_history(history);
+        assert_eq!(game.current_player(), *player);
+        assert_eq!(&game.strategy(), strategy);
+        assert_eq!(game.weights(0), weights[0]);
+        assert_eq!(game.weights(1), weights[1]);
+
+        let mut lock = strategy.clone();
+        lock[0] = 0.0; // hand 0 keeps mass elsewhere or stays unlocked
+        lock.iter_mut().skip(1).for_each(|x| *x *= 3.0);
+        lock_game.apply_history(history);
+        lock_game.lock_current_strategy(&lock);
+        let expected = lock_game.current_locking_strategy();
+        lock_game.unlock_all_strategies();
+        assert_eq!(lock_game.current_locking_strategy(), None);
+        lock_game.lock_strategy_at(history, lock);
+        assert_eq!(lock_game.current_locking_strategy(), expected);
+        lock_game.set_player_locks_enabled(*player, false);
+        assert_eq!(lock_game.current_locking_strategy(), None);
+        lock_game.set_player_locks_enabled(*player ^ 1, true);
+        assert_eq!(lock_game.current_locking_strategy(), None);
+        lock_game.set_player_locks_enabled(*player, true);
+        assert_eq!(lock_game.current_locking_strategy(), expected);
+        lock_game.unlock_all_strategies();
+    }
+}

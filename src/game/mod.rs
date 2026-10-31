@@ -1,4 +1,5 @@
 mod base;
+mod cursor;
 mod evaluation;
 mod interpreter;
 mod node;
@@ -8,6 +9,8 @@ mod serialization;
 
 #[cfg(test)]
 mod tests;
+
+pub use cursor::NodeCursor;
 
 use crate::action_tree::*;
 use crate::card::*;
