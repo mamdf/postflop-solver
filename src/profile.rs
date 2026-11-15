@@ -292,7 +292,11 @@ impl StrategyProfile {
             return err("Invalid node");
         }
         let len = node.actions.len() * self.hands[node.player].len();
-        if node.offset + len > self.data.len() {
+        if node
+            .offset
+            .checked_add(len)
+            .is_none_or(|end| end > self.data.len())
+        {
             return err("Strategy out of bounds at node");
         }
         if self

@@ -400,5 +400,16 @@ fn profile_dir_round_trip() {
     drop(nodes);
     same(&profile, &dir::read_dir(&v1).unwrap());
 
+    // an offset near usize::MAX is an error, not an overflow
+    let nodes = std::fs::read_to_string(v2.join("nodes.jsonl")).unwrap();
+    let first = nodes.lines().next().unwrap();
+    let huge = first.replace(
+        &format!("\"offset\":{}", profile.nodes()[0].offset),
+        "\"offset\":18446744073709551615",
+    );
+    assert_ne!(huge, first);
+    std::fs::write(v2.join("nodes.jsonl"), huge).unwrap();
+    assert!(dir::read_dir(&v2).unwrap_err().contains("out of bounds"));
+
     std::fs::remove_dir_all(&base).unwrap();
 }
