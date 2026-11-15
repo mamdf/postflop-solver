@@ -59,7 +59,7 @@ pub struct PostFlopGame {
     // hand strength information: indices are stored in ascending strength order
     hand_strength: Vec<[Vec<StrengthItem>; 2]>,
 
-    // set by `update_config_with_isomorphism(.., false)`: no chance cards are merged
+    // set by `update_config_isomorphism(.., false)`: no chance cards are merged
     isomorphism_disabled: bool,
 
     // isomorphism information
