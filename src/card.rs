@@ -244,12 +244,17 @@ impl CardConfig {
         ret
     }
 
-    pub(crate) fn isomorphism(&self, private_cards: &[Vec<(Card, Card)>; 2]) -> IsomorphismData {
+    pub(crate) fn isomorphism(
+        &self,
+        private_cards: &[Vec<(Card, Card)>; 2],
+        enabled: bool,
+    ) -> IsomorphismData {
         let mut suit_isomorphism = [0; 4];
         let mut next_index = 1;
         'outer: for suit2 in 1..4 {
             for suit1 in 0..suit2 {
-                if self.range[0].is_suit_isomorphic(suit1, suit2)
+                if enabled
+                    && self.range[0].is_suit_isomorphic(suit1, suit2)
                     && self.range[1].is_suit_isomorphic(suit1, suit2)
                 {
                     suit_isomorphism[suit2 as usize] = suit_isomorphism[suit1 as usize];

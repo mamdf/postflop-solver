@@ -150,13 +150,42 @@ impl PostFlopGame {
         Ok(game)
     }
 
-    /// Updates the game configuration. The solved result will be lost.
+    /// Like [`with_config`], but with `isomorphism == false` no turn or river card is merged
+    /// with a suit-symmetric one, so each lock and strategy is per card. Such a game cannot be
+    /// saved. [`with_config`] enables isomorphism.
+    ///
+    /// [`with_config`]: #method.with_config
+    pub fn with_config_isomorphism(
+        card_config: CardConfig,
+        action_tree: ActionTree,
+        isomorphism: bool,
+    ) -> Result<Self, String> {
+        let mut game = Self::new();
+        game.update_config_isomorphism(card_config, action_tree, isomorphism)?;
+        Ok(game)
+    }
+
+    /// Updates the game configuration, enabling isomorphism. The solved result will be lost.
     #[inline]
     pub fn update_config(
         &mut self,
         card_config: CardConfig,
         action_tree: ActionTree,
     ) -> Result<(), String> {
+        self.update_config_isomorphism(card_config, action_tree, true)
+    }
+
+    /// [`update_config`] with the isomorphism switch of [`with_config_isomorphism`].
+    ///
+    /// [`update_config`]: #method.update_config
+    /// [`with_config_isomorphism`]: #method.with_config_isomorphism
+    pub fn update_config_isomorphism(
+        &mut self,
+        card_config: CardConfig,
+        action_tree: ActionTree,
+        isomorphism: bool,
+    ) -> Result<(), String> {
+        self.isomorphism_disabled = !isomorphism;
         self.state = State::ConfigError;
 
         if !action_tree.invalid_terminals().is_empty() {
@@ -818,7 +847,9 @@ impl PostFlopGame {
             self.isomorphism_ref_river,
             self.isomorphism_card_river,
             self.isomorphism_swap_river,
-        ) = self.card_config.isomorphism(&self.private_cards);
+        ) = self
+            .card_config
+            .isomorphism(&self.private_cards, !self.isomorphism_disabled);
     }
 
     /// Initializes the root node of game tree.

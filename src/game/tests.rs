@@ -1947,3 +1947,89 @@ fn node_cursor_and_lock_strategy_at_match_the_interpreter() {
         lock_game.unlock_all_strategies();
     }
 }
+
+fn ak_suited_game(isomorphism: bool) -> PostFlopGame {
+    let card_config = CardConfig {
+        range: ["AKs".parse().unwrap(), "AKs".parse().unwrap()],
+        flop: flop_from_str("2c3c4c").unwrap(),
+        ..Default::default()
+    };
+    let tree_config = TreeConfig {
+        starting_pot: 10,
+        effective_stack: 10,
+        river_bet_sizes: [("a", "").try_into().unwrap(), Default::default()],
+        ..Default::default()
+    };
+    let action_tree = ActionTree::new(tree_config).unwrap();
+    let mut game =
+        PostFlopGame::with_config_isomorphism(card_config, action_tree, isomorphism).unwrap();
+    game.allocate_memory(false);
+    game
+}
+
+#[test]
+fn isomorphism_off_matches_on_and_keeps_every_card() {
+    let mut on = ak_suited_game(true);
+    let mut off = ak_suited_game(false);
+    solve(&mut on, 200, 0.0, false);
+    solve(&mut off, 200, 0.0, false);
+
+    for (game, merged) in [(&mut on, true), (&mut off, false)] {
+        game.apply_history(&[0, 0]);
+        assert_eq!(game.available_actions().len(), if merged { 23 } else { 49 });
+        game.apply_history(&[0, 0, 13, 0, 0]);
+        assert_eq!(game.available_actions().len(), if merged { 35 } else { 48 });
+        game.back_to_root();
+    }
+
+    for g in [&mut on, &mut off] {
+        g.back_to_root();
+        g.cache_normalized_weights();
+    }
+    let (ev_on, ev_off) = (on.expected_values(0), off.expected_values(0));
+    for (a, b) in ev_on.iter().zip(&ev_off) {
+        assert!((a - b).abs() < 0.05, "{a} vs {b}");
+    }
+    assert!((compute_exploitability(&on) - compute_exploitability(&off)).abs() < 0.05);
+}
+
+#[test]
+fn isomorphism_off_honours_asymmetric_locks() {
+    let mut game = ak_suited_game(false);
+    let hand = |game: &PostFlopGame, c1: &str, c2: &str| {
+        let pair = (card_from_str(c1).unwrap(), card_from_str(c2).unwrap());
+        let pair = (pair.0.min(pair.1), pair.0.max(pair.1));
+        game.private_cards(0)
+            .iter()
+            .position(|&p| p == pair)
+            .unwrap()
+    };
+    let (hh, hs) = (hand(&game, "Ah", "Kh"), hand(&game, "As", "Ks"));
+    let n = game.private_cards(0).len();
+
+    // Turn 5d, river 5h and 5s are exchanged by the h/s swap, and so are AhKh and AsKs.
+    let (a, b) = ([0, 0, 13, 0, 0, 14], [0, 0, 13, 0, 0, 15]);
+    let mut lock_a = vec![0.0; 2 * n];
+    lock_a[hh] = 1.0; // check
+    let mut lock_b = vec![0.0; 2 * n];
+    lock_b[n + hs] = 1.0; // all-in
+    game.lock_strategy_at(&a, lock_a);
+    game.lock_strategy_at(&b, lock_b);
+
+    solve(&mut game, 100, 0.0, false);
+
+    game.apply_history(&a);
+    assert_eq!(game.strategy()[hh], 1.0);
+    game.apply_history(&b);
+    assert_eq!(game.strategy()[n + hs], 1.0);
+}
+
+#[test]
+fn isomorphism_off_cannot_be_saved() {
+    let mut game = ak_suited_game(false);
+    solve(&mut game, 10, 0.0, false);
+    let path = std::env::temp_dir().join(format!("iso_off_{}.bin", std::process::id()));
+    let err = crate::save_solution(&mut game, &path, &crate::SaveOptions::navigable());
+    let _ = std::fs::remove_file(&path);
+    assert!(err.is_err());
+}

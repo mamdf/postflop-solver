@@ -115,6 +115,11 @@ impl Encode for PostFlopGame {
         if self.state <= State::Uninitialized {
             return Err(EncodeError::Other("Game is not successfully initialized"));
         }
+        if self.isomorphism_disabled {
+            return Err(EncodeError::Other(
+                "A game without isomorphism cannot be saved",
+            ));
+        }
 
         let num_storage = self.num_target_storage();
 

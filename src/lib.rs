@@ -15,7 +15,8 @@
 //!   The developer reviews the assembly output from the compiler and ensures that SIMD instructions are used as much as possible.
 //!   Combined with the algorithm described above, the performance surpasses paid solvers such as PioSOLVER and GTO+.
 //! - **Isomorphism**: The solver does not perform any abstraction.
-//!   However, isomorphic chances (turn and river deals) are combined into one.
+//!   However, isomorphic chances (turn and river deals) are combined into one
+//!   (unless built with `PostFlopGame::with_config_isomorphism(.., false)`).
 //!   For example, if the flop is monotone, the three non-dealt suits are isomorphic,
 //!   allowing us to skip the calculation for two of the three suits.
 //! - **Precision**: 32-bit floating-point numbers are used in most places.
