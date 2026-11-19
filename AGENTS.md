@@ -9,20 +9,17 @@ below **before** running any `cargo test` / `cargo bench` in this repo.
 **1. As an automated agent, run the suite via the capped recipe — never raw `cargo test`:**
 
 ```sh
-just test-agent          # = RAYON_NUM_THREADS=4 RUST_TEST_THREADS=2 cargo test --features zstd,profile-io
+just test-agent
 just test-one <name>     # single test under the same cap, e.g. just test-one kuhn
 ```
 
-If `just` is unavailable, use the raw equivalent:
+If `just` is unavailable, copy the env vars, features and `cargo test` line from
+the `test-agent` recipe in `justfile`.
 
-```sh
-RAYON_NUM_THREADS=4 RUST_TEST_THREADS=2 cargo test --features zstd,profile-io
-```
-
-Why the cap: Rayon defaults to **all 12 logical cores** and the test harness
+Why the cap: Rayon defaults to **all logical cores** and the test harness
 runs many tests in parallel → oversubscription → ~95% CPU and a frozen machine.
-The cap (4 Rayon cores, 2 parallel tests) keeps the box responsive. The cap is
-**deliberately not global** — the server, manual runs, and calibration benches
+The cap (`AGENT_CORES` and the harness thread count, in `justfile`) keeps the
+box responsive. The cap is **deliberately not global** — the server, manual runs, and calibration benches
 must stay at full power, so it lives only in the `*-agent` recipes, not in
 `.cargo/config.toml`.
 
@@ -35,12 +32,11 @@ timeout 300 just test-agent        # abort instead of waiting forever
 Or run it in the background and poll. If a run exceeds its budget below by ~3×,
 **stop and investigate** — do not keep waiting.
 
-**3. Tests are already fast — they no longer need `--release`.** `Cargo.toml`
-sets `[profile.test] opt-level = 3`, so `cargo test` runs at release speed
-**while keeping `debug-assertions` + overflow checks ON** (stricter than
-`--release`). Adding `--release` only disables those checks; don't bother.
+**3. Tests do not need `--release`.** `[profile.test]` in `Cargo.toml` already
+optimizes them while keeping `debug-assertions` + overflow checks ON (stricter
+than `--release`); `--release` only disables those checks.
 
-## Time budget (this host: Ryzen 5 5600X, 6c/12t, capped to 4 Rayon cores)
+## Time budget (this host: Ryzen 5 5600X, 6c/12t, agent cap)
 
 Numbers are wall time for a **warm build** (first build adds opt-level-3 compile
 time, ~1–2 min, one-off). If a run takes ≳3× its budget, something is wrong.
@@ -60,7 +56,7 @@ The heavy `#[ignore]`d presets (`solve_pio_preset_*`, `test_bunching_wizard`,
 only on explicit request, full-power and deliberate:
 
 ```sh
-just test-heavy                    # cargo test --features zstd -- --ignored
+just test-heavy
 ```
 
 ## Adding a new test
