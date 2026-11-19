@@ -2085,9 +2085,8 @@ mod icm_offset_tests {
         }
     }
 
-    /// With `base = [0, 0]` the new formula is byte-identical to the legacy one. We recompute the
-    /// legacy result inline (the exact code that lived in `tournament_icm_values_for_terminal`
-    /// before this change) and assert equality across all winners and several contributions.
+    /// With `base = [0, 0]` the formula is byte-identical to the one without a base offset. We
+    /// recompute that result inline and assert equality across all winners and several contributions.
     #[test]
     fn base_zero_is_byte_identical_to_legacy() {
         let mut game = minimal_game();
@@ -2230,7 +2229,7 @@ mod icm_offset_tests {
     }
 
     /// Negative control for the fold-equivalent path: a re-rooted game with a STORED base of
-    /// [0, 0] (what the buggy hardcoded `[0, 0]` produced) must give a DIFFERENT delta from the
+    /// [0, 0] must give a DIFFERENT delta from the
     /// FULL framing. This proves the stored base is load-bearing for the REPORTED EVs (the
     /// fold-equivalent centering), not just for the terminal utilities.
     #[test]

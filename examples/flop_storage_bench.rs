@@ -30,13 +30,13 @@ use std::time::Instant;
 //   extraction seeds all ~45–48 turn subgames, which is relevant for future caching.
 //
 // Projected-solve calibration:
-//   Slope ~0.83 ms / iter / 1M tree elements (Ryzen 5600X, RAYON_NUM_THREADS=4).
-//   Formula: proj_s = total_elements / 1e6 * 0.83 * max_iters / 1000.
-//   NOTE: slope is host-pinned; see provenance label printed alongside each projection.
+//   Slope: ms / iter / 1M tree elements, a fixed constant calibrated on one host.
+//   Formula: proj_s = total_elements / 1e6 * MS_PER_ITER_PER_M_ELEMENTS * max_iters / 1000.
+//   NOTE: the slope is host-dependent; treat the projection as an order of magnitude.
 // ============================================================================
 
 const ZSTD_LEVEL: i32 = 12;
-/// Calibration slope: ms per iteration per 1M tree elements (Ryzen 5600X, 4 Rayon threads).
+/// Calibration slope: ms per iteration per 1M tree elements; host-dependent.
 const MS_PER_ITER_PER_M_ELEMENTS: f64 = 0.83;
 
 fn main() {
@@ -92,7 +92,7 @@ fn run_counts_mode(heavy: bool) {
         "FLOP_BENCH_COUNTS=1 — dry run: element counts + projected solve times (no solve/save)"
     );
     println!(
-        "host: rayon_threads={} | slope calibrated on Ryzen 5600X, full threads",
+        "host: rayon_threads={} | slope is host-dependent, projections are rough",
         rayon_threads
     );
     println!("{}", "=".repeat(72));
@@ -140,7 +140,7 @@ fn print_counts_for_spot(tag: &str, cfg: &SpotConfig) {
     );
     println!("  memory_usage   -> {:.3} GB uncompressed", mem_gb);
     println!(
-        "  projected solve -> {:.1} s  ({} iters × {:.1}M elements × {:.2} ms/iter/M) [slope calibrated on Ryzen 5600X, full threads; rayon_threads={}]",
+        "  projected solve -> {:.1} s  ({} iters × {:.1}M elements × {:.2} ms/iter/M) [host-dependent slope; rayon_threads={}]",
         proj_secs,
         cfg.parent_max_iters,
         total_elems as f64 / 1_000_000.0,
@@ -162,17 +162,14 @@ fn s1_config(smoke: bool) -> SpotConfig {
     let ip_range = "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+";
     // Smoke: tiny single sizing so the tree is tiny and runs in seconds.
     // Full: fat sizings (flop "33%, 75%" + "2.5x"; turn/river "33%, 75%, 125%, a" + "2.5x").
-    //   Stack 145 (SPR≈2.4 on pot 60) is the largest that keeps the parent uncompressed
-    //   memory ≤ ~1.5 GB on this host (1.470 GB at stack=145 vs 1.588 GB at stack=150,
-    //   verified via FLOP_BENCH_COUNTS). Stack=60 was too conservative (only 0.579 GB at 100).
-    //   Parent converged wall time stays low because the parent stops at target (~30-100
-    //   iters, not 1000).
+    //   Stack 145 (SPR≈2.4 on pot 60) keeps the parent's uncompressed memory under a ~1.5 GB
+    //   budget (check with FLOP_BENCH_COUNTS). Parent converged wall time stays low because the
+    //   parent stops at target, not at 1000 iters.
     let flop_bets = if smoke { "50%" } else { "33%, 75%" };
     let turn_river_bets = if smoke { "50%" } else { "33%, 75%, 125%, a" };
     let raise = if smoke { "" } else { "2.5x" };
     let parent_iters = if smoke { 50 } else { 1000 };
     let turn_iters = if smoke { 50 } else { 1000 };
-    // stack=145: largest value keeping parent uncompressed RAM ≤ ~1.5 GB (1.470 GB; verified).
     let stack = 145;
 
     SpotConfig {
@@ -227,7 +224,7 @@ fn s2_config(smoke: bool) -> SpotConfig {
         starting_pot: 60,
         // Stack 240: maximizes the wide-ceiling stress on disk size measurement.
         // Range::ones() symmetry means exploitability converges in very few iterations,
-        // so the actual solve time is far below the 283 s worst-case projection.
+        // so the actual solve time is far below the worst-case projection.
         effective_stack: 240,
         flop_bets: "50%".to_string(),
         flop_raise: "".to_string(),
@@ -273,7 +270,6 @@ fn s3_config(smoke: bool) -> SpotConfig {
     //   At starting_pot=60 with stack=35 the invested line left only ~5 chips behind
     //   (near-allin, trivial subgame); retuning to starting_pot=20 fixes this while
     //   keeping the stack-to-ICM-stack relationship chip-scale-consistent.
-    //   At 3000 iters this projects to ≲30 s on this host.
     // Subgame: FAT sizings ("33%, 75%, 125%, a" + "2.5x") — the turn-rooted subgame is
     //   small by construction (single card), so fat sizings are fine here.
     let parent_bets = "50%";
@@ -669,7 +665,7 @@ fn run_spot(cfg: &SpotConfig, any_failed: &mut bool) {
         cfg.subgame_river_raise
     );
     println!(
-        "  seam: pot={}  stack={}  SPR={:.2}  (rayon_threads={}) [slope calibrated on Ryzen 5600X, full threads]",
+        "  seam: pot={}  stack={}  SPR={:.2}  (rayon_threads={})",
         parent_pot, parent_stack, seam_spr,
         rayon::current_num_threads()
     );

@@ -144,7 +144,7 @@ fn river_save_preserves_tournament_icm() {
     let reference_ev_oop = game.expected_values(0);
     let reference_ev_ip = game.expected_values(1);
 
-    // River round-trip (the previously ICM-incorrect path).
+    // River round-trip.
     let path = temp_path("icm_river");
     save_solution(&mut game, &path, &SaveOptions::navigable()).unwrap();
     let (mut loaded, _memo) = load_solution(&path, &LoadOptions::default()).unwrap();

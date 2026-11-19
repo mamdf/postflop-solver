@@ -78,7 +78,6 @@ fn scale_key(a: ActionKey, k: f64) -> ActionKey {
 
 #[test]
 fn profile_self_relock() {
-    // budget: <0.1s @ RAYON_NUM_THREADS=4 (warm)
     let (profile, expl) = solved_profile();
     let ev = evaluate(&profile, MatchOptions::default());
     assert!(ev.complete, "{:?}", ev.report);
@@ -93,7 +92,6 @@ fn profile_self_relock() {
 
 #[test]
 fn profile_uniform_is_more_exploitable() {
-    // budget: <0.1s @ RAYON_NUM_THREADS=4 (warm)
     let (_, expl) = solved_profile();
     let uniform = StrategyProfile::from_game(&mut test_game(), "uniform").unwrap();
     let ev = evaluate(&uniform, MatchOptions::default());
@@ -107,7 +105,6 @@ fn profile_uniform_is_more_exploitable() {
 
 #[test]
 fn profile_order_independent() {
-    // budget: <0.1s @ RAYON_NUM_THREADS=4 (warm)
     let (profile, _) = solved_profile();
     let rev_hands = [0, 1].map(|p| profile.hands(p).iter().rev().copied().collect::<Vec<_>>());
     let mut reversed = StrategyProfile::new("reversed", profile.starting_pot, rev_hands).unwrap();
@@ -130,7 +127,6 @@ fn profile_order_independent() {
 
 #[test]
 fn profile_amount_scale() {
-    // budget: <0.1s @ RAYON_NUM_THREADS=4 (warm)
     let (profile, expl) = solved_profile();
     let scaled = map_actions(&profile, 100.0, |a| scale_key(a, 100.0));
     let ev = evaluate(&scaled, MatchOptions::default());
@@ -149,7 +145,6 @@ fn profile_amount_scale() {
 
 #[test]
 fn profile_root_only_and_nan_rows() {
-    // budget: <0.1s @ RAYON_NUM_THREADS=4 (warm)
     let mut game = test_game();
     let actions: Vec<ActionKey> = game
         .available_actions()
@@ -208,7 +203,6 @@ fn profile_root_only_and_nan_rows() {
 
 #[test]
 fn profile_small_chip_sizes() {
-    // budget: <0.1s @ RAYON_NUM_THREADS=4 (warm)
     // river spot in bb units: root actions are [Check, Bet(2), Bet(3)], one chip apart
     let card_config = CardConfig {
         range: [
@@ -303,7 +297,6 @@ fn profile_small_chip_sizes() {
 
 #[test]
 fn profile_aggressive_class_and_resolve_line() {
-    // budget: <0.1s @ RAYON_NUM_THREADS=4 (warm)
     let (profile, expl) = solved_profile();
     let swapped = map_actions(&profile, 1.0, |a| match a {
         ActionKey::Bet(x) => ActionKey::Raise(x),
@@ -333,7 +326,6 @@ fn profile_aggressive_class_and_resolve_line() {
 #[cfg(feature = "profile-io")]
 #[test]
 fn profile_dir_round_trip() {
-    // budget: <0.1s @ RAYON_NUM_THREADS=4 (warm)
     use serde_json::json;
     use std::io::Write;
 

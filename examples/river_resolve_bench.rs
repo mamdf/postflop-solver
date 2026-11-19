@@ -2,14 +2,12 @@ use postflop_solver::*;
 use std::time::Instant;
 
 // ============================================================================
-// Phase 4 measurement: cost of an on-demand RIVER re-solve (Technique B gate).
+// Cost of an on-demand RIVER re-solve.
 //
-// Technique B wants to save a SHALLOW artifact (e.g. turn-level) and, when the
-// user navigates to a river that was dropped from the save, RE-SOLVE that river
-// subgame on demand instead of storing it. The whole bet of Technique B is that
-// a single river re-solve is "cheap" (~sub-second). That premise was never
-// measured -- the only existing bench (benches/web_case.rs) times a FLOP solve.
-// This example measures the real number on a realistic tree.
+// Saving a SHALLOW artifact (e.g. turn-level) and re-solving a dropped river
+// subgame on demand instead of storing it only pays if a single river re-solve is
+// cheap. The only other bench (benches/web_case.rs) times a FLOP solve; this
+// example times a river re-solve on a realistic tree.
 //
 // What this does:
 //   1. Solve the flop with a COARSE tree -- only to cheaply generate realistic
@@ -23,14 +21,14 @@ use std::time::Instant;
 //   4. Time solve_with_result on the river at 0.5% / 0.3% / 0.1% of pot.
 //   5. Check determinism (two identical re-solves must match exactly).
 //   6. Secondary: time a TURN re-solve from flop ranges, for the cost-curve
-//      contrast (turn-from-flop is the expensive case Technique B must AVOID).
+//      contrast (turn-from-flop is the expensive case an on-demand re-solve must AVOID).
 //
 // CRITICAL CAVEATS:
 //   - A river-rooted game runs SINGLE-THREAD: enable_parallelization() is false
 //     once river != NOT_DEALT (src/game/node.rs). So this measures the true
 //     single-thread cost; rayon does not help the river re-solve.
 //   - Build with `--release` or every number here is meaningless.
-//   - Isomorphism un-swap (weights() is raw) is a Phase-1 CORRECTNESS concern.
+//   - Isomorphism un-swap (weights() is raw) is a CORRECTNESS concern.
 //     It does NOT affect re-solve COST, which is all this example measures, so we
 //     use concrete cards exactly like examples/turn_resolve.rs.
 // ============================================================================
@@ -192,7 +190,7 @@ fn main() {
 
     // ---- 5b. WORST CASE: wide ranges, deep SPR, fat tree -------------------
     // The line above is a FAVORABLE river (ranges collapsed to ~100 hands after
-    // two bet/call streets). The feasibility report's risk #1 is a WIDE-range
+    // two bet/call streets). The costly case is a WIDE-range
     // river (~1300 hands) at deep SPR. Stress it directly: seed the FULL starting
     // ranges on a concrete 5-card board with a deep stack (SPR ~6.7), so the hand
     // matrix is near-maximal and the fat river tree fans into many bet/raise lines.
@@ -252,10 +250,9 @@ fn main() {
     }
 
     // ---- 5c. THEORETICAL MAX: 100% vs 100% ranges (~1300 hands) ------------
-    // The report's ~1300-hand figure is a FULL (100%) range. Real solve ranges are
-    // narrower (167 hands above), but river solve cost scales ~quadratically with
-    // hand count at showdown, so the 100%-vs-100% river is the only case that could
-    // plausibly approach the ~1s budget. Measure the true ceiling.
+    // A FULL (100%) range is ~1300 hands. Real solve ranges are narrower, but river solve
+    // cost scales ~quadratically with hand count at showdown, so the 100%-vs-100% river is the
+    // case that could approach the sub-second budget. Measure the true ceiling.
     let build_max = || -> PostFlopGame {
         let cc = CardConfig {
             range: [Range::ones(); 2], // 100% vs 100%
@@ -309,12 +306,12 @@ fn main() {
     }
 
     // ---- 6. Secondary: TURN re-solve from flop ranges (the expensive case) --
-    // This is what Technique B must AVOID (a flop-only save forces this). Measured
+    // This is what an on-demand re-solve must AVOID (a flop-only save forces this). Timed
     // here only to quantify the contrast vs the cheap river re-solve. A turn game
     // runs PARALLEL (river == NOT_DEALT at the turn root), unlike the river.
     // NOTE: deliberately MODERATE sizes (not the river's fat tree) to stay light on
-    // WSL2 RAM -- a production-fat turn tree would be heavier still, so the
-    // turn >> river contrast measured here is conservative.
+    // RAM -- a production-fat turn tree would be heavier still, so the
+    // turn >> river contrast is conservative.
     let turn_bets = BetSizeOptions::try_from(("33%, 75%", "")).unwrap();
     let turn_river_bets = BetSizeOptions::try_from(("50%", "")).unwrap();
     let turn_tree_config = TreeConfig {

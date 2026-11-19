@@ -65,7 +65,6 @@ fn reference_icm_config() -> TournamentIcmConfig {
 /// identical ICM terminal utilities: same exploitability scale and same reported EVs. The
 /// legacy encoder (2026-06-02) dropped the base, so on old code the loaded game silently
 /// fell back to `[0, 0]` and both values shifted; format 2026-07-06 persists the base.
-// budget: ~1s @ RAYON_NUM_THREADS=4 (warm)
 #[test]
 fn icm_base_contribution_round_trips() {
     let mut game = reference_game();
@@ -114,7 +113,6 @@ fn icm_base_contribution_round_trips() {
 /// written from the reference game configured with base `[30, 30]`; the legacy encoder
 /// dropped the base, so the loaded game must match a zero-base game and must NOT match the
 /// base-`[30, 30]` game (the limitation the 2026-07-06 format removes for new files).
-// budget: ~1s @ RAYON_NUM_THREADS=4 (warm)
 #[test]
 fn legacy_icm_file_loads_with_zero_base() {
     let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/icm_legacy.pfs");

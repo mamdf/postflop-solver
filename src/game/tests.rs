@@ -603,7 +603,6 @@ fn tournament_icm_changes_internal_ev() {
 
 #[test]
 fn exploitability_target_scale_icm_two_player_closed_form() {
-    // budget: <1s @ RAYON_NUM_THREADS=4 (warm)
     let card_config = CardConfig {
         range: [Range::ones(); 2],
         flop: flop_from_str("Td9d6h").unwrap(),
@@ -640,7 +639,6 @@ fn exploitability_target_scale_icm_two_player_closed_form() {
 
 #[test]
 fn exploitability_target_scale_icm_respects_base_contribution() {
-    // budget: <1s @ RAYON_NUM_THREADS=4 (warm)
     let card_config = CardConfig {
         range: [Range::ones(); 2],
         flop: flop_from_str("Td9d6h").unwrap(),
@@ -677,7 +675,6 @@ fn exploitability_target_scale_icm_respects_base_contribution() {
 
 #[test]
 fn exploitability_target_scale_icm_uses_pot_swing_not_bust_swing() {
-    // budget: <1s @ RAYON_NUM_THREADS=4 (warm)
     let card_config = CardConfig {
         range: [Range::ones(); 2],
         flop: flop_from_str("Td9d6h").unwrap(),
@@ -1743,8 +1740,8 @@ fn solve_pio_preset_raked() {
 /// Regression for reach extraction (`node_input_ranges`) across an ISOMORPHIC
 /// chance hop.
 ///
-/// `examples/turn_resolve.rs` only ever extracts ranges through a concrete,
-/// non-isomorphic card, so the isomorphic path was untested. This proves that
+/// `examples/turn_resolve.rs` only extracts ranges through a concrete,
+/// non-isomorphic card; this covers the isomorphic path and proves that
 /// `weights()` stays index-aligned with `private_cards()` even after the line
 /// crosses an isomorphic chance node — a hand is zero in `weights()` exactly when
 /// it conflicts with the actual board — so NO suit un-swap is needed when

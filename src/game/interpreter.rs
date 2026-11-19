@@ -985,8 +985,7 @@ impl PostFlopGame {
     /// - `pot = starting_pot + oop_invested + ip_invested`
     /// - `effective_stack = effective_stack - max(oop_invested, ip_invested)`
     ///
-    /// This is the derivation previously inlined in `examples/turn_resolve.rs`; the
-    /// pot is the pot BEFORE betting at the current node begins.
+    /// The pot is the pot BEFORE betting at the current node begins.
     pub fn node_pot_stack(&self) -> (i32, i32) {
         let [oop, ip] = self.total_bet_amount();
         let pot = self.tree_config.starting_pot + oop + ip;

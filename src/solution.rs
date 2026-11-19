@@ -185,14 +185,13 @@ pub fn load_solution<P: AsRef<Path>>(
 /// element.
 ///
 /// The serialized node arena, action tree, and headers add a term that is independent of the
-/// value precision (it depends on the tree shape, not on f32-vs-u16). Across measured spots
-/// it is ≈ 0.68 bytes per `num_storage` element (derived by subtracting the f32 and u16
-/// uncompressed sizes; see `benches/compact_save.rs`). With this additive term the
-/// uncompressed estimate lands within ~2% of the real file size.
+/// value precision (it depends on the tree shape, not on f32-vs-u16). It is derived by
+/// subtracting the f32 and u16 uncompressed sizes; `benches/compact_save.rs` reports the
+/// estimate's error against the real file size.
 pub const ARENA_BYTES_PER_STORAGE_ELEMENT: f64 = 0.68;
 
 /// Typical zstd compression ratio (uncompressed / compressed) for a River-mode save at a high
-/// level. Real ratios vary with the data (~4–6x observed), so the compressed estimate is only
+/// level. Real ratios vary with the data, so the compressed estimate is only
 /// a rough guide. Used as the default for size estimation; pass `1.0` for no compression.
 pub const DEFAULT_ZSTD_RATIO: f64 = 4.5;
 
@@ -403,7 +402,7 @@ mod tests {
         );
     }
 
-    // ---- Technique B slice-1 tests ------------------------------------------
+    // ---- `node_pot_stack` tests ------------------------------------------
 
     /// `node_pot_stack` must return the correct (pot, stack) after a known bet/call line.
     ///
