@@ -1,118 +1,30 @@
 # postflop-solver — agent guide
 
-This crate is a CFR poker solver. Its tests **run the solver**, so a careless
-`cargo test` can either hang for minutes or pin every CPU core. Read the rules
-below **before** running any `cargo test` / `cargo bench` in this repo.
+CFR poker solver. Its tests **run the solver**: a raw `cargo test` can hang or pin
+every core.
 
-## Running tests — MANDATORY rules for automated agents
+## Tests
 
-**1. As an automated agent, run the suite via the capped recipe — never raw `cargo test`:**
-
-```sh
-just test-agent
-just test-one <name>     # single test under the same cap, e.g. just test-one kuhn
-```
-
-If `just` is unavailable, copy the env vars, features and `cargo test` line from
-the `test-agent` recipe in `justfile`.
-
-Why the cap: Rayon defaults to **all logical cores** and the test harness
-runs many tests in parallel → oversubscription → ~95% CPU and a frozen machine.
-The cap (`AGENT_CORES` and the harness thread count, in `justfile`) keeps the
-box responsive. The cap is **deliberately not global** — the server, manual runs, and calibration benches
-must stay at full power, so it lives only in the `*-agent` recipes, not in
-`.cargo/config.toml`.
-
-**2. Always bound the run — never block on it blind:**
-
-```sh
-timeout 300 just test-agent        # abort instead of waiting forever
-```
-
-Or run it in the background and poll. If a run exceeds its budget below by ~3×,
-**stop and investigate** — do not keep waiting.
-
-**3. Tests do not need `--release`.** `[profile.test]` in `Cargo.toml` already
-optimizes them while keeping `debug-assertions` + overflow checks ON (stricter
-than `--release`); `--release` only disables those checks.
-
-## Time budget (this host: Ryzen 5 5600X, 6c/12t, agent cap; 4 Rayon cores when measured)
-
-Numbers are wall time for a **warm build** (first build adds opt-level-3 compile
-time, ~1–2 min, one-off). If a run takes ≳3× its budget, something is wrong.
-
-<!-- BUDGET:LIB -->
-| Command | Budget (warm) | Abort if > | Notes |
-|---|---|---|---|
-| `just test-agent` (full suite) | ~30 s | 90 s | all non-ignored tests; ~314% CPU (cap confirmed) |
-| `just test-one kuhn` | <1 s | 5 s | tiny tree, 10k iters |
-| `just test-one leduc` | <1 s | 5 s | small tree, 10k iters |
-| `cargo test … --test compact_solution` | ~8 s | 25 s | solves web case ×3 + disk I/O |
-| `cargo test … --test web_case_regression` | ~3 s | 10 s | solves web case + CSV navigation |
-<!-- /BUDGET:LIB -->
-
-The heavy `#[ignore]`d presets (`solve_pio_preset_*`, `test_bunching_wizard`,
-`test_bunching_independent_4`) are **heavy** (lots of RAM and CPU time). Run them
-only on explicit request, full-power and deliberate:
-
-```sh
-just test-heavy
-```
-
-## Adding a new test
-
-- Keep it cheap: tiny spots (kuhn/leduc scale) and **low `max_iterations`**.
-  Most correctness tests need only 1–10 iterations; reserve big spots / high
-  iteration counts for `#[ignore]`.
-- Annotate the expected cost so the next agent knows what "normal" is:
-  ```rust
-  // budget: ~2s @ RAYON_NUM_THREADS=4 (warm)
-  ```
-- If you can't keep it cheap, gate it behind `#[ignore]` and document why.
-- After adding it, measure once with `just test-one <name>` and record the
-  number in the comment and (if it's a standing heavy test) in the table above.
-
-## Benchmarks
-
-`cargo bench` (`just bench`) uses the `bench` profile, which is **already
-release-optimized** — the issue is duration + full CPU, not opt-level. Benches
-are long; run them deliberately with a timeout/background, and do **not** cap
-their cores (a capped bench is not representative).
+- As an agent, run `just test-agent` or `just test-one <name>`, never raw `cargo test`.
+  They cap cores and kill a hung run (`justfile`). The cap is deliberately not
+  global: server, manual runs and benches stay at full power.
+- Heavy `#[ignore]`d presets: `just test-heavy`, only on explicit request.
+- New tests: kuhn/leduc-scale spots, few iterations. If it can't be cheap, `#[ignore]` it.
+- Benches (`just bench`): long, full CPU, uncapped; run deliberately in the background.
 
 ## Node locking (strategy locking) — it EXISTS
 
-Not to be confused with concurrency locks (`mutex_like.rs`). On `PostFlopGame`:
-`lock_current_strategy` / `unlock_current_strategy` / `current_locking_strategy`
-(`src/game/interpreter.rs`; example `examples/node_locking.rs`; tests
-`node_locking*` in `src/game/tests.rs`).
+Not the concurrency locks of `mutex_like.rs`. API: `src/game/interpreter.rs`,
+`src/game/cursor.rs`; example `examples/node_locking.rs`; over HTTP: the
+`postflop-solver-api` README.
 
-- Per current node, per hand: slice of `#actions * #hands`; a hand whose values
-  are all ≤ 0 stays free (partial lock). Call after `allocate_memory`, before
-  solving. There is no "lock whole range/subtree" helper: navigate and lock each node.
-- Many nodes: `lock_strategy_at(history, vec)` locks without moving the cursor or
-  replaying `play`; `set_player_locks_enabled` switches one seat's locks off and on
-  without re-locking; `unlock_all_strategies` clears all. `NodeCursor`
-  (`root_cursor`, `src/game/cursor.rs`) reads strategy and reach weights read-only, so
-  threads can walk one game at once.
-- Locks persist in `.pfs` saves. Over HTTP (a few nodes, by range and action
-  token): `postflop-solver-api` README "Node locking (for agents)"; in its UI: the lock editor.
-- Locks also bind the best response: with locked nodes, `compute_exploitability`
-  is relative to the restricted game.
-- Isomorphic turn/river cards alias one node: lock only via the representative
-  cards of `available_actions()` (`Action::Chance`), or the last write wins.
-
-### Evaluating another solver's strategy (`src/profile.rs`)
-
-- API and matching rules: rustdoc of `src/profile.rs`; file format: `src/profile/dir.rs`.
-  CLI: `cargo run --release --features profile-io --example profile_eval -- export|eval
-  <spec.json> <dir>`.
-- Line amounts are **raise-to on the current street, in chips** (as in `Action`).
-- Locks bind the locked player's best response, so `evaluate_source` locks one side
-  at a time for each best response.
-- Big dumps are GBs: run deliberately, full power, in the background.
+- With locked nodes, `compute_exploitability` is relative to the restricted game.
+- Isomorphic turn/river cards alias one node: lock via the representative cards of
+  `available_actions()`, or the last write wins.
+- Evaluating another solver's strategy: rustdoc of `src/profile.rs`. Dumps are GBs:
+  run deliberately, full power, in the background.
 
 ## Cross-repo consumers
 
-Other poker-stack repos may depend on this one. Before changing its exposed
-surface, run from the workspace root:
+Before changing the exposed surface, run from the workspace root:
 `uv run tooling/workspace-index/impact.py postflop-solver`

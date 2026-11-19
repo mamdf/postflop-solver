@@ -6,6 +6,8 @@ default:
 # background agent never pins all cores. Humans/CI use `just test` (full speed).
 # Deliberately NOT a global cap (would throttle the server/benches) — see CLAUDE.md.
 AGENT_CORES := "4"
+# Seconds the agent recipes' test run (not the build) may take before it is killed.
+AGENT_TIMEOUT := "90"
 
 # Full test suite at full speed for humans / CI (zstd: compact-save tests, profile-io: profile dirs).
 test:
@@ -13,11 +15,13 @@ test:
 
 # Subagent test run: caps Rayon + harness so a background agent stays responsive.
 test-agent:
-	RAYON_NUM_THREADS={{AGENT_CORES}} RUST_TEST_THREADS=2 cargo test --features zstd,profile-io
+	cargo test --features zstd,profile-io --no-run
+	RAYON_NUM_THREADS={{AGENT_CORES}} RUST_TEST_THREADS=2 timeout {{AGENT_TIMEOUT}} cargo test --features zstd,profile-io
 
 # Single test by name under the agent cap, e.g. `just test-one kuhn`.
 test-one NAME:
-	RAYON_NUM_THREADS={{AGENT_CORES}} RUST_TEST_THREADS=2 cargo test --features zstd,profile-io {{NAME}}
+	cargo test --features zstd,profile-io --no-run
+	RAYON_NUM_THREADS={{AGENT_CORES}} RUST_TEST_THREADS=2 timeout {{AGENT_TIMEOUT}} cargo test --features zstd,profile-io {{NAME}}
 
 # Heavy #[ignore]d solver presets. Run deliberately.
 test-heavy:
