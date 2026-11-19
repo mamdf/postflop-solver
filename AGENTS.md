@@ -36,7 +36,7 @@ Or run it in the background and poll. If a run exceeds its budget below by ~3×,
 optimizes them while keeping `debug-assertions` + overflow checks ON (stricter
 than `--release`); `--release` only disables those checks.
 
-## Time budget (this host: Ryzen 5 5600X, 6c/12t, agent cap)
+## Time budget (this host: Ryzen 5 5600X, 6c/12t, agent cap; 4 Rayon cores when measured)
 
 Numbers are wall time for a **warm build** (first build adds opt-level-3 compile
 time, ~1–2 min, one-off). If a run takes ≳3× its budget, something is wrong.
