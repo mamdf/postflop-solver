@@ -189,8 +189,8 @@ fn main() {
     );
 
     // ---- 5b. WORST CASE: wide ranges, deep SPR, fat tree -------------------
-    // The line above is a FAVORABLE river (ranges collapsed to ~100 hands after
-    // two bet/call streets). The costly case is a WIDE-range
+    // The line above is a FAVORABLE river (ranges collapsed after two bet/call
+    // streets). The costly case is a WIDE-range
     // river (~1300 hands) at deep SPR. Stress it directly: seed the FULL starting
     // ranges on a concrete 5-card board with a deep stack (SPR ~6.7), so the hand
     // matrix is near-maximal and the fat river tree fans into many bet/raise lines.

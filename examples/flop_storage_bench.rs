@@ -267,9 +267,9 @@ fn s3_config(smoke: bool) -> SpotConfig {
     //   SPR = 35/20 = 1.75 — non-degenerate after OOP-Check/IP-Bet(50%=10)/OOP-Call:
     //   seam pot = 40, remaining stack = 25, seam SPR = 25/40 = 0.625 (≥ 0.5 threshold).
     //   ICM stacks [35,35,70] / payouts [60,40,0] are on the same chip scale as the hand.
-    //   At starting_pot=60 with stack=35 the invested line left only ~5 chips behind
-    //   (near-allin, trivial subgame); retuning to starting_pot=20 fixes this while
-    //   keeping the stack-to-ICM-stack relationship chip-scale-consistent.
+    //   A larger starting_pot at this stack would leave the invested line near-allin
+    //   (trivial subgame); starting_pot=20 avoids that while keeping the stack-to-ICM-stack
+    //   relationship chip-scale-consistent.
     // Subgame: FAT sizings ("33%, 75%, 125%, a" + "2.5x") — the turn-rooted subgame is
     //   small by construction (single card), so fat sizings are fine here.
     let parent_bets = "50%";
