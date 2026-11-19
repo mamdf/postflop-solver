@@ -19,11 +19,11 @@ test-agent:
 test-one NAME:
 	RAYON_NUM_THREADS={{AGENT_CORES}} RUST_TEST_THREADS=2 cargo test --features zstd,profile-io {{NAME}}
 
-# Heavy #[ignore]d solver presets (minutes, several GB RAM). Deliberate only.
+# Heavy #[ignore]d solver presets. Run deliberately.
 test-heavy:
 	cargo test --features zstd -- --ignored
 
-# Criterion/custom benches: already release-optimized, LONG, full CPU. Use a timeout.
+# Criterion/custom benches at full CPU.
 bench:
 	cargo bench
 

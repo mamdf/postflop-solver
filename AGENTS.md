@@ -52,7 +52,7 @@ time, ~1–2 min, one-off). If a run takes ≳3× its budget, something is wrong
 <!-- /BUDGET:LIB -->
 
 The heavy `#[ignore]`d presets (`solve_pio_preset_*`, `test_bunching_wizard`,
-`test_bunching_independent_4`) take **minutes and several GB of RAM**. Run them
+`test_bunching_independent_4`) are **heavy** (lots of RAM and CPU time). Run them
 only on explicit request, full-power and deliberate:
 
 ```sh
